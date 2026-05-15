@@ -4,10 +4,21 @@
 // ============================================================
 const { useState: useStateA, useEffect: useEffectA } = React;
 
+// Detectar parámetro ?exam=CODE en la URL para modo estudiante (sin login)
+function getExamCodeFromURL() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("exam");
+  } catch (e) { return null; }
+}
+
 function App() {
+  // Detectar modo estudiante (URL con ?exam=...)
+  const [examCode] = useStateA(getExamCodeFromURL());
+
   // ---- Estado de autenticación ----
   const [authChecking, setAuthChecking] = useStateA(true);
-  const [authView, setAuthView] = useStateA("login"); // login | register
+  const [authView, setAuthView] = useStateA("login");
   const [user, setUser] = useStateA(null);
   const [userData, setUserData] = useStateA(null);
 
@@ -16,8 +27,12 @@ function App() {
   const [editingId, setEditingId] = useStateA(null);
   const [showAdmin, setShowAdmin] = useStateA(false);
 
-  // ---- Listener de sesión Firebase ----
+  // ---- Listener de sesión Firebase (solo si NO estamos en modo estudiante) ----
   useEffectA(() => {
+    if (examCode) {
+      setAuthChecking(false);
+      return;
+    }
     const unsub = window.QS.auth.onAuthStateChanged(async (fbUser) => {
       if (fbUser) {
         try {
@@ -29,7 +44,6 @@ function App() {
             window.QS.currentUser = fbUser;
             window.QS.currentUserData = data;
           } else {
-            // Usuario auth pero sin perfil — caso raro, cerrar sesión
             await window.QS.auth.signOut();
             setUser(null);
             setUserData(null);
@@ -46,7 +60,7 @@ function App() {
       setAuthChecking(false);
     });
     return () => unsub();
-  }, []);
+  }, [examCode]);
 
   const handleLogout = async () => {
     await window.QS.auth.signOut();
@@ -54,14 +68,14 @@ function App() {
     setShowAdmin(false);
   };
 
-  // ---- Render según estado de sesión ----
-
-  // 1. Verificando sesión
-  if (authChecking) {
-    return <window.QS.AuthLoading message="Verificando sesión..." />;
+  // MODO ESTUDIANTE
+  if (examCode) {
+    return <window.QS.StudentExam examCode={examCode} />;
   }
 
-  // 2. No hay sesión: mostrar login o registro
+  // MODO PROFESOR
+  if (authChecking) return <window.QS.AuthLoading message="Verificando sesión..." />;
+
   if (!user) {
     if (authView === "register") {
       return <window.QS.RegisterScreen onSwitchToLogin={() => setAuthView("login")} />;
@@ -69,52 +83,34 @@ function App() {
     return <window.QS.LoginScreen onSwitchToRegister={() => setAuthView("register")} />;
   }
 
-  // 3. Sesión iniciada pero pendiente de aprobación
   if (userData?.status === "pending") {
     return <window.QS.PendingScreen user={userData} onLogout={handleLogout} />;
   }
 
-  // 4. Sesión iniciada pero rechazada
   if (userData?.status === "rejected") {
     return <window.QS.RejectedScreen onLogout={handleLogout} />;
   }
 
-  // 5. Si admin abrió el panel
   if (showAdmin && userData?.role === "admin") {
     return <window.QS.AdminPanel onClose={() => setShowAdmin(false)} />;
   }
 
-  // 6. Sesión aprobada: mostrar la app
   const handleNav = (target) => {
     if (target === "join") setView("participant");
     else if (target === "admin") setShowAdmin(true);
     else setView(target);
   };
 
-  const showChrome = ["dashboard", "library", "results"].includes(view) || view === "editor";
-
   return (
     <div style={{ minHeight: "100vh", background: "var(--ink-50)" }}>
-      {showChrome && view !== "editor" && (
-        <TopNav
-          active={view}
-          onNav={handleNav}
-          onLaunch={() => setView("host")}
-          user={userData}
-          onLogout={handleLogout}
-          onAdmin={userData?.role === "admin" ? () => setShowAdmin(true) : null}
-        />
-      )}
-      {view === "editor" && (
-        <TopNav
-          active="dashboard"
-          onNav={handleNav}
-          onLaunch={() => setView("host")}
-          user={userData}
-          onLogout={handleLogout}
-          onAdmin={userData?.role === "admin" ? () => setShowAdmin(true) : null}
-        />
-      )}
+      <TopNav
+        active={view}
+        onNav={handleNav}
+        onLaunch={() => setView("host")}
+        user={userData}
+        onLogout={handleLogout}
+        onAdmin={userData?.role === "admin" ? () => setShowAdmin(true) : null}
+      />
 
       {view === "dashboard" && (
         <Dashboard
@@ -124,13 +120,17 @@ function App() {
         />
       )}
       {view === "editor" && (
-        <Editor onBack={() => setView("dashboard")} onLaunch={() => setView("host")}/>
+        <Editor
+          quizId={editingId}
+          onBack={() => setView("dashboard")}
+          onLaunch={() => setView("host")}
+        />
       )}
       {view === "host" && (
         <HostFlow onBack={() => setView("dashboard")} onResults={() => setView("results")}/>
       )}
       {view === "results" && (
-        <ResultsDashboard onBack={() => setView("dashboard")}/>
+        <window.QS.OnlineResultsPanel onBack={() => setView("dashboard")}/>
       )}
       {view === "library" && (
         <LibraryView onBack={() => setView("dashboard")}/>
@@ -142,7 +142,6 @@ function App() {
   );
 }
 
-// LibraryView (mantenido del archivo original, simplificado)
 function LibraryView({ onBack }) {
   const items = [
     { emoji: "📚", title: "Plantilla: Historia", desc: "Conceptos clave", c: "var(--violet-600)" },

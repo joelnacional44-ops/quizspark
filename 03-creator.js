@@ -134,6 +134,9 @@ function Dashboard({ onOpenEditor, onLaunch, onResults }) {
             qs: (data.questions || []).length,
             plays: data.plays || 0,
             color: data.color || "var(--violet-500)",
+            isPublished: data.isPublished || false,
+            publishCode: data.publishCode || null,
+            updatedAt: data.updatedAt || 0,
           };
         });
         list.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
@@ -279,11 +282,30 @@ function Dashboard({ onOpenEditor, onLaunch, onResults }) {
                 }}><I.trash size={16} stroke="#fff" /></button>
             </div>
             <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
-              <div style={{ fontWeight: 700, fontSize: 15, fontFamily: "var(--font-display)" }}>{q.title}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "space-between" }}>
+                <div style={{ fontWeight: 700, fontSize: 15, fontFamily: "var(--font-display)", flex: 1 }}>{q.title}</div>
+                {q.isPublished && (
+                  <span style={{
+                    fontSize: 10, fontWeight: 700, padding: "2px 8px",
+                    borderRadius: 6, background: "#d1fae5", color: "#065f46", whiteSpace: "nowrap",
+                  }}>🟢 ONLINE</span>
+                )}
+              </div>
               <div style={{ display: "flex", gap: 12, color: "var(--ink-500)", fontSize: 12, fontWeight: 600 }}>
                 <span style={{ display: "flex", alignItems: "center", gap: 4 }}><I.list size={14}/> {q.qs} preguntas</span>
                 <span style={{ display: "flex", alignItems: "center", gap: 4 }}><I.play size={12}/> {q.plays} sesiones</span>
               </div>
+              {q.isPublished && q.publishCode && (
+                <button
+                  onClick={() => {
+                    const url = window.location.origin + window.location.pathname + "?exam=" + q.publishCode;
+                    navigator.clipboard.writeText(url);
+                    alert("Enlace copiado:\n" + url);
+                  }}
+                  className="qs-btn qs-btn--ghost qs-btn--sm"
+                  style={{ fontSize: 12 }}
+                >🔗 Copiar enlace ({q.publishCode})</button>
+              )}
               <div style={{ display: "flex", gap: 6, marginTop: "auto" }}>
                 <button onClick={() => onOpenEditor(q.id)} className="qs-btn qs-btn--ghost qs-btn--sm" style={{ flex: 1 }}>
                   <I.edit size={14}/> Editar
@@ -301,7 +323,7 @@ function Dashboard({ onOpenEditor, onLaunch, onResults }) {
 }
 
 // =================== EDITOR ===================
-function Editor({ onBack, onLaunch }) {
+function Editor({ quizId, onBack, onLaunch }) {
   const [quiz, setQuiz] = useStateC(() => ({
     ...MOCK_QUIZ,
     id: "new-" + Date.now(),
@@ -322,8 +344,39 @@ function Editor({ onBack, onLaunch }) {
   const [activeIdx, setActiveIdx] = useStateC(0);
   const [showSettings, setShowSettings] = useStateC(false);
   const [saving, setSaving] = useStateC(false);
-  const [saveStatus, setSaveStatus] = useStateC(""); // "" | "saved" | "error"
+  const [saveStatus, setSaveStatus] = useStateC("");
+  const [showPublish, setShowPublish] = useStateC(false);
+  const [loadingQuiz, setLoadingQuiz] = useStateC(false);
   const active = quiz.questions[activeIdx];
+
+  // Cargar quiz desde Firestore si recibimos un id existente
+  useEffectC(() => {
+    if (!quizId || quizId === "new") return;
+    setLoadingQuiz(true);
+    window.QS.db.collection("quizzes").doc(quizId).get()
+      .then(doc => {
+        if (doc.exists) {
+          const data = { id: doc.id, ...doc.data() };
+          if (!data.questions || data.questions.length === 0) {
+            data.questions = [{
+              id: "qq-" + Date.now(), type: "multi",
+              text: "Escribe tu pregunta aquí", timer: 20,
+              options: [
+                { id: "a", text: "Opción A", correct: true },
+                { id: "b", text: "Opción B", correct: false },
+              ],
+            }];
+          }
+          setQuiz(data);
+          setActiveIdx(0);
+        }
+      })
+      .catch(err => {
+        console.error("Error cargando quiz:", err);
+        alert("Error cargando el quiz: " + err.message);
+      })
+      .finally(() => setLoadingQuiz(false));
+  }, [quizId]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -331,12 +384,7 @@ function Editor({ onBack, onLaunch }) {
     try {
       const uid = window.QS.currentUser?.uid;
       if (!uid) throw new Error("No hay sesión activa");
-      const data = {
-        ...quiz,
-        ownerId: uid,
-        updatedAt: Date.now(),
-      };
-      // Si el id empieza con "new-", crear documento; si no, actualizar
+      const data = { ...quiz, ownerId: uid, updatedAt: Date.now() };
       if (String(quiz.id).startsWith("new-") || !quiz.id) {
         const docRef = await window.QS.db.collection("quizzes").add(data);
         setQuiz(q => ({ ...q, id: docRef.id }));
@@ -345,12 +393,26 @@ function Editor({ onBack, onLaunch }) {
       }
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus(""), 2500);
+      return true;
     } catch (err) {
       console.error("Error guardando:", err);
       setSaveStatus("error");
       alert("Error al guardar: " + err.message);
+      return false;
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
+  };
+
+  const handlePublishClick = async () => {
+    // Asegurar que esté guardado antes de publicar
+    if (String(quiz.id).startsWith("new-")) {
+      const ok = await handleSave();
+      if (!ok) return;
+    } else {
+      await handleSave();
+    }
+    setShowPublish(true);
   };
 
   const updateQuestion = (patch) => {
@@ -425,11 +487,17 @@ function Editor({ onBack, onLaunch }) {
               ✓ Guardado
             </span>
           )}
+          {quiz.isPublished && (
+            <span style={{
+              fontSize: 12, fontWeight: 700, padding: "4px 10px",
+              borderRadius: 8, background: "#d1fae5", color: "#065f46",
+            }}>🟢 Publicado</span>
+          )}
           <button onClick={() => setShowSettings(true)} className="qs-btn qs-btn--ghost qs-btn--sm">
             <I.lock size={14}/> Privacidad y reglas
           </button>
-          <button className="qs-btn qs-btn--ghost qs-btn--sm">
-            <I.eye size={14}/> Vista previa
+          <button onClick={handlePublishClick} className="qs-btn qs-btn--ghost qs-btn--sm">
+            🌐 Publicar online
           </button>
           <button onClick={handleSave} disabled={saving} className="qs-btn qs-btn--primary qs-btn--sm">
             {saving ? "Guardando..." : "💾 Guardar"}
@@ -677,6 +745,13 @@ function Editor({ onBack, onLaunch }) {
       </div>
 
       {showSettings && <SettingsModal quiz={quiz} setQuiz={setQuiz} onClose={() => setShowSettings(false)}/>}
+      {showPublish && (
+        <window.QS.PublishModal
+          quiz={quiz}
+          onClose={() => setShowPublish(false)}
+          onPublished={(updated) => setQuiz(q => ({ ...q, ...updated }))}
+        />
+      )}
     </div>
   );
 }
