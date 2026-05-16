@@ -615,11 +615,38 @@ function StudentJoinLive({ initialCode, onCancel }) {
   const [code, setCode] = useStateL(initialCode || "");
   const [name, setName] = useStateL("");
   const [course, setCourse] = useStateL("");
-  const [step, setStep] = useStateL(initialCode ? "identify" : "code"); // code | identify | joining | live
+  const [step, setStep] = useStateL(initialCode ? "checking" : "code"); // code | checking | identify | joining | live
   const [error, setError] = useStateL("");
   const [session, setSession] = useStateL(null);
   const [participantId, setParticipantId] = useStateL(null);
   const [quiz, setQuiz] = useStateL(null);
+
+  // Si llega un código por URL, cargar la sesión automáticamente
+  useEffectL(() => {
+    if (!initialCode) return;
+    let cancelled = false;
+    const autoLoad = async () => {
+      try {
+        const snap = await window.QS.db.collection("liveSessions")
+          .where("code", "==", initialCode).where("status", "==", "lobby").limit(1).get();
+        if (cancelled) return;
+        if (snap.empty) {
+          setError("Código no encontrado o la sala ya empezó.");
+          setStep("code");
+          return;
+        }
+        const doc = snap.docs[0];
+        setSession({ id: doc.id, ...doc.data() });
+        setStep("identify");
+      } catch (err) {
+        if (cancelled) return;
+        setError("Error: " + err.message);
+        setStep("code");
+      }
+    };
+    autoLoad();
+    return () => { cancelled = true; };
+  }, [initialCode]);
 
   const handleCheckCode = async () => {
     setError("");
@@ -648,6 +675,10 @@ function StudentJoinLive({ initialCode, onCancel }) {
       setError("Completa nombre y curso.");
       return;
     }
+    if (!session || !session.id) {
+      setError("La sala aún no se ha cargado. Intenta de nuevo.");
+      return;
+    }
     setStep("joining");
     try {
       const pid = "p-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7);
@@ -667,6 +698,8 @@ function StudentJoinLive({ initialCode, onCancel }) {
       const quizDoc = await window.QS.db.collection("quizzes").doc(session.quizId).get();
       if (quizDoc.exists) {
         setQuiz({ id: quizDoc.id, ...quizDoc.data() });
+      } else {
+        throw new Error("No se pudo cargar el quiz asociado");
       }
       setStep("live");
     } catch (err) {
@@ -750,6 +783,13 @@ function StudentJoinLive({ initialCode, onCancel }) {
               🚀 Entrar al quiz
             </button>
           </>
+        )}
+
+        {step === "checking" && (
+          <div style={{ textAlign: "center", padding: 20 }}>
+            <div style={{ fontSize: 32 }}>🔍</div>
+            <p>Verificando código de sala...</p>
+          </div>
         )}
 
         {step === "joining" && (
