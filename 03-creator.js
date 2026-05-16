@@ -339,6 +339,9 @@ function Editor({ quizId, onBack, onLaunch }) {
       type: "multi",
       text: "Escribe tu pregunta aquí",
       timer: 20,
+      pointsCorrect: 100,
+      pointsWrong: 0,
+      pointsSpeedBonus: 0,
       options: [
         { id: "a", text: "Opción A", correct: true },
         { id: "b", text: "Opción B", correct: false },
@@ -346,6 +349,9 @@ function Editor({ quizId, onBack, onLaunch }) {
         { id: "d", text: "Opción D", correct: false },
       ],
     }],
+    gradingScale: [
+      { from: 0,    to: 0,    grade: 1.0 },   // se calcula dinámicamente con setupDefaultScale
+    ],
   }));
   const [activeIdx, setActiveIdx] = useStateC(0);
   const [showSettings, setShowSettings] = useStateC(false);
@@ -367,11 +373,20 @@ function Editor({ quizId, onBack, onLaunch }) {
             data.questions = [{
               id: "qq-" + Date.now(), type: "multi",
               text: "Escribe tu pregunta aquí", timer: 20,
+              pointsCorrect: 100, pointsWrong: 0, pointsSpeedBonus: 0,
               options: [
                 { id: "a", text: "Opción A", correct: true },
                 { id: "b", text: "Opción B", correct: false },
               ],
             }];
+          } else {
+            // Aplicar defaults de puntaje a preguntas sin esos campos (quizzes viejos)
+            data.questions = data.questions.map(q => ({
+              ...q,
+              pointsCorrect: q.pointsCorrect ?? 100,
+              pointsWrong: q.pointsWrong ?? 0,
+              pointsSpeedBonus: q.pointsSpeedBonus ?? 0,
+            }));
           }
           setQuiz(data);
           setActiveIdx(0);
@@ -390,33 +405,21 @@ function Editor({ quizId, onBack, onLaunch }) {
     try {
       const uid = window.QS.currentUser?.uid;
       if (!uid) throw new Error("No hay sesión activa");
-
-      // Limpiar el id interno: NUNCA debe ir dentro del documento Firestore
-      const { id: _ignoreId, ...dataNoId } = quiz;
-      const data = { ...dataNoId, ownerId: uid, updatedAt: Date.now() };
-
-      let realId;
+      const data = { ...quiz, ownerId: uid, updatedAt: Date.now() };
       if (String(quiz.id).startsWith("new-") || !quiz.id) {
         const docRef = await window.QS.db.collection("quizzes").add(data);
-        realId = docRef.id;
-        // Sobrescribir el documento con el id correcto adentro (opcional, para que coincida)
-        await window.QS.db.collection("quizzes").doc(realId).update({ id: realId });
-        setQuiz(q => ({ ...q, id: realId }));
+        setQuiz(q => ({ ...q, id: docRef.id }));
       } else {
-        realId = quiz.id;
-        // Forzar que el campo id dentro del documento coincida con el ID real
-        await window.QS.db.collection("quizzes").doc(realId).set(
-          { ...data, id: realId }, { merge: true }
-        );
+        await window.QS.db.collection("quizzes").doc(quiz.id).set(data, { merge: true });
       }
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus(""), 2500);
-      return realId;
+      return true;
     } catch (err) {
       console.error("Error guardando:", err);
       setSaveStatus("error");
       alert("Error al guardar: " + err.message);
-      return null;
+      return false;
     } finally {
       setSaving(false);
     }
@@ -448,7 +451,7 @@ function Editor({ quizId, onBack, onLaunch }) {
 
   const addQuestion = (type) => {
     const id = "qq-" + Date.now();
-    const base = { id, text: "", timer: 20 };
+    const base = { id, text: "", timer: 20, pointsCorrect: 100, pointsWrong: 0, pointsSpeedBonus: 0 };
     let q;
     if (type === "multi") q = { ...base, type, options: [
       { id: "a", text: "", correct: false }, { id: "b", text: "", correct: false },
@@ -512,7 +515,7 @@ function Editor({ quizId, onBack, onLaunch }) {
             }}>🟢 Publicado</span>
           )}
           <button onClick={() => setShowSettings(true)} className="qs-btn qs-btn--ghost qs-btn--sm">
-            <I.lock size={14}/> Privacidad y reglas
+            <I.lock size={14}/> Calificación y reglas
           </button>
           <button onClick={handlePublishClick} className="qs-btn qs-btn--ghost qs-btn--sm">
             🌐 Publicar online
@@ -520,18 +523,7 @@ function Editor({ quizId, onBack, onLaunch }) {
           <button onClick={handleSave} disabled={saving} className="qs-btn qs-btn--primary qs-btn--sm">
             {saving ? "Guardando..." : "💾 Guardar"}
           </button>
-          <button className="qs-btn qs-btn--success" onClick={async () => {
-            let idToUse = quiz.id;
-            if (String(idToUse).startsWith("new-")) {
-              const savedId = await handleSave();
-              if (!savedId) return;
-              idToUse = savedId;
-            } else {
-              // Guardar cambios pendientes primero, por si hubo edits
-              await handleSave();
-            }
-            onLaunch(idToUse);
-          }}>
+          <button className="qs-btn qs-btn--success" onClick={() => onLaunch(quiz.id)}>
             🎮 Sala en vivo
           </button>
         </div>
@@ -621,6 +613,63 @@ function Editor({ quizId, onBack, onLaunch }) {
                   style={{ width: 50, border: "1px solid var(--ink-200)", borderRadius: 8, padding: "4px 8px", textAlign: "center" }}/>
                 seg
               </span>
+            </div>
+
+            {/* === Puntuación de la pregunta === */}
+            <div style={{
+              background: "var(--violet-50)", border: "1px solid var(--violet-200)",
+              borderRadius: 12, padding: 14, marginBottom: 16,
+            }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "var(--violet-700)", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+                🎯 Puntuación de esta pregunta
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
+                <label style={{ display: "block" }}>
+                  <span style={{ fontSize: 11, color: "var(--ink-500)", fontWeight: 600, display: "block", marginBottom: 4 }}>
+                    Si ACIERTA
+                  </span>
+                  <input type="number"
+                    value={active.pointsCorrect ?? 100}
+                    onChange={e => updateQuestion({ pointsCorrect: +e.target.value })}
+                    style={{
+                      width: "100%", padding: "8px 10px", borderRadius: 8,
+                      border: "1px solid var(--ink-200)", fontWeight: 700,
+                      fontSize: 16, color: "var(--emerald-600)",
+                    }}
+                  />
+                </label>
+                <label style={{ display: "block" }}>
+                  <span style={{ fontSize: 11, color: "var(--ink-500)", fontWeight: 600, display: "block", marginBottom: 4 }}>
+                    Si FALLA
+                  </span>
+                  <input type="number"
+                    value={active.pointsWrong ?? 0}
+                    onChange={e => updateQuestion({ pointsWrong: +e.target.value })}
+                    style={{
+                      width: "100%", padding: "8px 10px", borderRadius: 8,
+                      border: "1px solid var(--ink-200)", fontWeight: 700,
+                      fontSize: 16, color: "var(--red-500)",
+                    }}
+                  />
+                </label>
+                <label style={{ display: "block" }}>
+                  <span style={{ fontSize: 11, color: "var(--ink-500)", fontWeight: 600, display: "block", marginBottom: 4 }}>
+                    Bonus VELOCIDAD (máx)
+                  </span>
+                  <input type="number"
+                    value={active.pointsSpeedBonus ?? 0}
+                    onChange={e => updateQuestion({ pointsSpeedBonus: +e.target.value })}
+                    style={{
+                      width: "100%", padding: "8px 10px", borderRadius: 8,
+                      border: "1px solid var(--ink-200)", fontWeight: 700,
+                      fontSize: 16, color: "var(--amber-500)",
+                    }}
+                  />
+                </label>
+              </div>
+              <p style={{ fontSize: 11, color: "var(--ink-500)", marginTop: 8, lineHeight: 1.5 }}>
+                ℹ️ El bonus por velocidad solo aplica en modo <b>sala en vivo</b>. Puedes usar valores negativos en "Si falla" para penalizar respuestas incorrectas.
+              </p>
             </div>
 
             <textarea value={active.text}
@@ -819,18 +868,128 @@ function Toggle({ label, defaultOn }) {
 }
 
 function SettingsModal({ quiz, setQuiz, onClose }) {
+  // Calcular total máximo del quiz sumando pointsCorrect + pointsSpeedBonus de cada pregunta
+  const totalMaxPoints = (quiz.questions || []).reduce((sum, q) => {
+    const correct = q.pointsCorrect ?? 100;
+    const bonus = q.pointsSpeedBonus ?? 0;
+    return sum + correct + bonus;
+  }, 0);
+
+  // Tabla de conversión por defecto (escala colombiana 0-5) si no existe
+  const defaultScale = [
+    { from: 0,                       to: Math.floor(totalMaxPoints * 0.30) - 1, grade: 1.0 },
+    { from: Math.floor(totalMaxPoints * 0.30), to: Math.floor(totalMaxPoints * 0.60) - 1, grade: 2.0 },
+    { from: Math.floor(totalMaxPoints * 0.60), to: Math.floor(totalMaxPoints * 0.80) - 1, grade: 3.0 },
+    { from: Math.floor(totalMaxPoints * 0.80), to: Math.floor(totalMaxPoints * 0.90) - 1, grade: 4.0 },
+    { from: Math.floor(totalMaxPoints * 0.90), to: totalMaxPoints,                       grade: 5.0 },
+  ];
+
+  const currentScale = (quiz.gradingScale && quiz.gradingScale.length > 0 && quiz.gradingScale[0].to !== 0)
+    ? quiz.gradingScale
+    : defaultScale;
+
+  const updateRange = (idx, field, value) => {
+    const next = [...currentScale];
+    next[idx] = { ...next[idx], [field]: value };
+    setQuiz({ ...quiz, gradingScale: next });
+  };
+
+  const addRange = () => {
+    const last = currentScale[currentScale.length - 1];
+    const newRange = { from: (last.to || 0) + 1, to: (last.to || 0) + 100, grade: (last.grade || 0) + 1 };
+    setQuiz({ ...quiz, gradingScale: [...currentScale, newRange] });
+  };
+
+  const removeRange = (idx) => {
+    const next = currentScale.filter((_, i) => i !== idx);
+    setQuiz({ ...quiz, gradingScale: next });
+  };
+
+  const resetScale = () => {
+    if (confirm("¿Restablecer la tabla a la escala colombiana 0-5 por defecto?")) {
+      setQuiz({ ...quiz, gradingScale: defaultScale });
+    }
+  };
+
   return (
     <div onClick={onClose} style={{
       position: "fixed", inset: 0, background: "rgba(20,16,43,.5)", zIndex: 100,
-      display: "grid", placeItems: "center",
+      display: "grid", placeItems: "center", padding: 20, overflow: "auto",
     }}>
-      <div onClick={e => e.stopPropagation()} className="qs-card" style={{ padding: 28, maxWidth: 480 }}>
-        <h2 style={{ marginBottom: 16 }}>Privacidad y reglas</h2>
-        <Field label="Contraseña de acceso">
-          <input className="qs-input" value={quiz.password}
-            onChange={e => setQuiz({ ...quiz, password: e.target.value })} />
+      <div onClick={e => e.stopPropagation()} className="qs-card" style={{
+        padding: 28, maxWidth: 580, width: "100%", maxHeight: "90vh", overflowY: "auto",
+      }}>
+        <h2 style={{ marginBottom: 16, fontSize: 22 }}>⚙️ Configuración del quiz</h2>
+
+        <Field label="Contraseña de acceso (opcional)">
+          <input className="qs-input" value={quiz.password || ""}
+            onChange={e => setQuiz({ ...quiz, password: e.target.value })}
+            placeholder="Dejar vacío si no se requiere" />
         </Field>
-        <button onClick={onClose} className="qs-btn qs-btn--primary" style={{ width: "100%" }}>Listo</button>
+
+        <div style={{ marginTop: 24, paddingTop: 20, borderTop: "1px solid var(--ink-200)" }}>
+          <h3 style={{ fontSize: 16, marginBottom: 8 }}>📊 Tabla de conversión a nota</h3>
+          <p style={{ fontSize: 13, color: "var(--ink-500)", marginBottom: 12 }}>
+            Define cómo se traducen los puntos obtenidos a una nota.
+          </p>
+
+          <div style={{
+            background: "var(--violet-50)", border: "1px solid var(--violet-200)",
+            padding: 10, borderRadius: 10, marginBottom: 12, fontSize: 13, color: "var(--violet-700)",
+          }}>
+            <b>Total máximo del quiz:</b> {totalMaxPoints} puntos
+            <br/>
+            <span style={{ fontSize: 11, opacity: 0.85 }}>
+              (suma de "si acierta" + bonus de velocidad de todas las preguntas)
+            </span>
+          </div>
+
+          {currentScale.map((range, i) => (
+            <div key={i} style={{
+              display: "flex", alignItems: "center", gap: 6,
+              marginBottom: 8, fontSize: 13,
+            }}>
+              <span style={{ minWidth: 30, color: "var(--ink-500)" }}>De</span>
+              <input type="number" value={range.from}
+                onChange={e => updateRange(i, "from", +e.target.value)}
+                style={{ width: 80, padding: 6, borderRadius: 6, border: "1px solid var(--ink-200)", textAlign: "center" }}
+              />
+              <span style={{ color: "var(--ink-500)" }}>a</span>
+              <input type="number" value={range.to}
+                onChange={e => updateRange(i, "to", +e.target.value)}
+                style={{ width: 80, padding: 6, borderRadius: 6, border: "1px solid var(--ink-200)", textAlign: "center" }}
+              />
+              <span style={{ color: "var(--ink-500)" }}>→ nota</span>
+              <input type="number" step="0.1" value={range.grade}
+                onChange={e => updateRange(i, "grade", +e.target.value)}
+                style={{
+                  width: 70, padding: 6, borderRadius: 6, border: "1px solid var(--violet-300)",
+                  textAlign: "center", fontWeight: 700, color: "var(--violet-700)",
+                }}
+              />
+              <button onClick={() => removeRange(i)}
+                style={{
+                  background: "transparent", border: "none", cursor: "pointer",
+                  color: "var(--red-500)", fontSize: 18, padding: 4,
+                }}
+                title="Eliminar este rango"
+              >🗑️</button>
+            </div>
+          ))}
+
+          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+            <button onClick={addRange} className="qs-btn qs-btn--ghost qs-btn--sm">
+              + Agregar rango
+            </button>
+            <button onClick={resetScale} className="qs-btn qs-btn--ghost qs-btn--sm">
+              ↻ Restaurar 0-5
+            </button>
+          </div>
+        </div>
+
+        <button onClick={onClose} className="qs-btn qs-btn--primary" style={{ width: "100%", marginTop: 24 }}>
+          Listo
+        </button>
       </div>
     </div>
   );

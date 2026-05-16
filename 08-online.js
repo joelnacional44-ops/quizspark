@@ -32,6 +32,8 @@ function shuffle(arr) {
 function gradeSubmission(quiz, answers) {
   let correct = 0;
   let total = 0;
+  let pointsEarned = 0;
+  let pointsMax = 0;
   const detail = [];
 
   for (const q of quiz.questions) {
@@ -52,12 +54,59 @@ function gradeSubmission(quiz, answers) {
       isCorrect = accepted.includes(user);
     }
 
+    // Puntos personalizados (con defaults para quizzes viejos)
+    const pCorrect = q.pointsCorrect ?? 100;
+    const pWrong = q.pointsWrong ?? 0;
+    const pBonus = q.pointsSpeedBonus ?? 0;
+
+    // En modo asincrónico no aplicamos bonus de velocidad
+    const pointsForThisQuestion = isCorrect ? pCorrect : (userAnswer != null ? pWrong : 0);
+    const maxForThisQuestion = pCorrect + pBonus; // máximo posible incluyendo bonus
+
+    pointsEarned += pointsForThisQuestion;
+    pointsMax += maxForThisQuestion;
+
     if (isCorrect) correct++;
-    detail.push({ qid: q.id, type: q.type, userAnswer, correct: isCorrect });
+    detail.push({
+      qid: q.id, type: q.type, userAnswer, correct: isCorrect,
+      points: pointsForThisQuestion, pointsMax: maxForThisQuestion,
+    });
   }
 
-  const score = total > 0 ? (correct / total) * 5 : 0; // escala colombiana 0-5
-  return { correct, total, score: +score.toFixed(2), percent: Math.round((correct / total) * 100), detail };
+  // Convertir a nota usando la tabla del quiz (o escala lineal por defecto)
+  const grade = convertPointsToGrade(pointsEarned, pointsMax, quiz.gradingScale);
+  const percent = pointsMax > 0 ? Math.round((pointsEarned / pointsMax) * 100) : 0;
+
+  return {
+    correct, total,
+    score: grade,
+    percent,
+    pointsEarned, pointsMax,
+    detail,
+  };
+}
+
+// Convertir puntos obtenidos a nota según la tabla de conversión del quiz
+function convertPointsToGrade(points, maxPoints, scale) {
+  // Si hay tabla definida, usarla
+  if (scale && Array.isArray(scale) && scale.length > 0) {
+    // Buscar el rango donde caen los puntos
+    for (const range of scale) {
+      if (points >= range.from && points <= range.to) {
+        return +(+range.grade).toFixed(2);
+      }
+    }
+    // Si está por encima del último rango definido, dar la nota más alta
+    const lastGrade = Math.max(...scale.map(r => r.grade));
+    if (points > Math.max(...scale.map(r => r.to))) return +lastGrade.toFixed(2);
+    // Si está por debajo, dar la nota más baja
+    const minGrade = Math.min(...scale.map(r => r.grade));
+    return +minGrade.toFixed(2);
+  }
+  // Por defecto: escala colombiana 0-5 lineal
+  if (maxPoints === 0) return 0;
+  const ratio = Math.max(0, Math.min(1, points / maxPoints));
+  return +(ratio * 5).toFixed(2);
 }
 
 // =================== PUBLISH MODAL ===================
@@ -368,6 +417,8 @@ function StudentExam({ examCode }) {
         total: grade.total,
         score: grade.score,
         percent: grade.percent,
+        pointsEarned: grade.pointsEarned || 0,
+        pointsMax: grade.pointsMax || 0,
         startedAt,
         finishedAt,
         totalSeconds,
@@ -507,21 +558,41 @@ function StudentExam({ examCode }) {
             {passing ? "🎉" : "📋"}
           </div>
           <h2 style={{ fontSize: 24, marginBottom: 4 }}>¡Evaluación enviada!</h2>
-          <p style={{ color: "var(--ink-500)", fontSize: 14, marginBottom: 24 }}>
+          <p style={{ color: "var(--ink-500)", fontSize: 14, marginBottom: 20 }}>
             Gracias, {studentName}. Tus respuestas se guardaron correctamente.
           </p>
 
+          {/* Aciertos */}
+          <div style={{
+            background: "var(--ink-50)", padding: 16, borderRadius: 12, marginBottom: 12,
+          }}>
+            <div style={{ fontSize: 13, color: "var(--ink-500)", fontWeight: 600 }}>Aciertos</div>
+            <div style={{ fontSize: 24, fontWeight: 800, fontFamily: "var(--font-display)" }}>
+              {result.correct} de {result.total}
+              <span style={{ fontSize: 14, color: "var(--ink-500)", fontWeight: 600 }}> ({result.percent}%)</span>
+            </div>
+          </div>
+
+          {/* Puntaje */}
+          <div style={{
+            background: "var(--violet-50)", padding: 16, borderRadius: 12, marginBottom: 12,
+          }}>
+            <div style={{ fontSize: 13, color: "var(--violet-700)", fontWeight: 600 }}>Puntaje obtenido</div>
+            <div style={{ fontSize: 28, fontWeight: 800, fontFamily: "var(--font-display)", color: "var(--violet-700)" }}>
+              {result.pointsEarned}
+              <span style={{ fontSize: 16, opacity: 0.7 }}> / {result.pointsMax}</span>
+            </div>
+          </div>
+
+          {/* Nota convertida */}
           <div style={{
             background: passing ? "#d1fae5" : "#fef3c7",
             color: passing ? "#065f46" : "#92400e",
-            padding: 24, borderRadius: 16, marginBottom: 20,
+            padding: 24, borderRadius: 16, marginBottom: 16,
           }}>
-            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>Tu nota</div>
+            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>TU NOTA</div>
             <div style={{ fontSize: 56, fontWeight: 800, fontFamily: "var(--font-display)", lineHeight: 1 }}>
               {result.score.toFixed(1)}
-            </div>
-            <div style={{ fontSize: 13, marginTop: 8 }}>
-              {result.correct} de {result.total} correctas ({result.percent}%)
             </div>
           </div>
 
@@ -783,10 +854,11 @@ function OnlineResultsPanel({ onBack }) {
       return;
     }
     // Construimos CSV (compatible con Excel y Google Sheets)
-    const header = ["Nombre", "Curso", "Fecha", "Nota (0-5)", "Aciertos", "Total", "% Correcto", "Tiempo (segundos)", "Enviado"];
+    const header = ["Nombre", "Curso", "Fecha", "Nota", "Puntos obtenidos", "Puntos máximos", "Aciertos", "Total preguntas", "% Correcto", "Tiempo (segundos)", "Enviado"];
     selectedQuiz.questions.forEach((q, i) => {
       header.push(`P${i+1}: ${q.text.substring(0, 50)}`);
       header.push(`P${i+1} ¿correcto?`);
+      header.push(`P${i+1} puntos obtenidos`);
     });
     const rows = filtered.map(s => {
       const row = [
@@ -794,6 +866,8 @@ function OnlineResultsPanel({ onBack }) {
         s.studentCourse,
         s.examDate,
         (s.score || 0).toFixed(2),
+        s.pointsEarned != null ? s.pointsEarned : "",
+        s.pointsMax != null ? s.pointsMax : "",
         s.correct || 0,
         s.total || 0,
         (s.percent || 0) + "%",
@@ -820,6 +894,7 @@ function OnlineResultsPanel({ onBack }) {
         }
         row.push(answerText);
         row.push(det ? (det.correct ? "Sí" : "No") : "");
+        row.push(det && det.points != null ? det.points : "");
       });
       return row;
     });
@@ -961,6 +1036,7 @@ function OnlineResultsPanel({ onBack }) {
                           <th style={{ padding: 12, fontSize: 12 }}>Fecha</th>
                           <th style={{ padding: 12, fontSize: 12 }}>Nota</th>
                           <th style={{ padding: 12, fontSize: 12 }}>Aciertos</th>
+                          <th style={{ padding: 12, fontSize: 12 }}>Puntos</th>
                           <th style={{ padding: 12, fontSize: 12 }}>Tiempo</th>
                           <th style={{ padding: 12, fontSize: 12 }}>Enviado</th>
                           <th style={{ padding: 12, fontSize: 12, width: 40 }}></th>
@@ -980,6 +1056,11 @@ function OnlineResultsPanel({ onBack }) {
                               }}>{(s.score || 0).toFixed(1)}</span>
                             </td>
                             <td style={{ padding: 12 }}>{s.correct}/{s.total}</td>
+                            <td style={{ padding: 12, color: "var(--violet-700)", fontWeight: 600 }}>
+                              {s.pointsEarned != null
+                                ? `${s.pointsEarned}/${s.pointsMax}`
+                                : "—"}
+                            </td>
                             <td style={{ padding: 12, color: "var(--ink-500)" }}>
                               {Math.floor((s.totalSeconds || 0) / 60)}:{String((s.totalSeconds || 0) % 60).padStart(2, "0")}
                             </td>
