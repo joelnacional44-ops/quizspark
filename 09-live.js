@@ -30,12 +30,50 @@ function shuffleArr(arr) {
   return a;
 }
 
-// Puntos por velocidad: hasta 1000 si responde inmediato, baja a 500 al final del tiempo
-function calculatePoints(isCorrect, secondsTaken, totalSeconds) {
-  if (!isCorrect) return 0;
+// Calcular puntos para una pregunta usando los valores configurados en el editor
+// q: pregunta del quiz (con pointsCorrect, pointsWrong, pointsSpeedBonus)
+// isCorrect: si la respuesta del estudiante es correcta
+// secondsTaken: cuánto demoró en responder
+// totalSeconds: tiempo total de la pregunta
+function calculatePoints(q, isCorrect, secondsTaken, totalSeconds) {
+  const pCorrect = q.pointsCorrect ?? 100;
+  const pWrong = q.pointsWrong ?? 0;
+  const pBonus = q.pointsSpeedBonus ?? 0;
+
+  if (!isCorrect) return pWrong;
+
+  // Si acertó: puntos base + bonus por velocidad proporcional
   const ratio = Math.max(0, 1 - (secondsTaken / Math.max(1, totalSeconds)));
-  const points = 500 + Math.round(500 * ratio);
-  return points;
+  const bonus = Math.round(pBonus * ratio);
+  return pCorrect + bonus;
+}
+
+// Calcular el máximo posible de un quiz (suma de pointsCorrect + pointsSpeedBonus)
+function calculateMaxPoints(quiz) {
+  return (quiz.questions || []).reduce((sum, q) => {
+    const correct = q.pointsCorrect ?? 100;
+    const bonus = q.pointsSpeedBonus ?? 0;
+    return sum + correct + bonus;
+  }, 0);
+}
+
+// Convertir puntos a nota usando la tabla del quiz
+function convertToGrade(points, maxPoints, scale) {
+  if (scale && Array.isArray(scale) && scale.length > 0) {
+    for (const range of scale) {
+      if (points >= range.from && points <= range.to) {
+        return +(+range.grade).toFixed(2);
+      }
+    }
+    const lastGrade = Math.max(...scale.map(r => r.grade));
+    if (points > Math.max(...scale.map(r => r.to))) return +lastGrade.toFixed(2);
+    const minGrade = Math.min(...scale.map(r => r.grade));
+    return +minGrade.toFixed(2);
+  }
+  // Por defecto: escala colombiana 0-5 lineal
+  if (maxPoints === 0) return 0;
+  const ratio = Math.max(0, Math.min(1, points / maxPoints));
+  return +(ratio * 5).toFixed(2);
 }
 
 function checkAnswer(question, answer) {
@@ -543,7 +581,13 @@ function LiveSessionHost({ quizId, onExit }) {
   const goNext = async () => {
     const nextIdx = session.currentQuestionIdx + 1;
     if (nextIdx >= quiz.questions.length) {
-      // Terminar
+      // Terminar: primero guardar resultados de cada participante
+      try {
+        await saveLiveResults();
+      } catch (err) {
+        console.error("Error guardando resultados:", err);
+        // No bloqueamos la finalización aunque falle el guardado
+      }
       await window.QS.db.collection("liveSessions").doc(sessionIdRef.current).update({
         status: "finished",
         finishedAt: Date.now(),
@@ -555,6 +599,73 @@ function LiveSessionHost({ quizId, onExit }) {
         questionStartedAt: Date.now(),
       });
     }
+  };
+
+  // Guardar resultados de la sala en vivo en la colección 'results' (para panel y Excel)
+  const saveLiveResults = async () => {
+    const uid = window.QS.currentUser?.uid;
+    if (!uid || !session || !quiz) return;
+    const participants = Object.values(session.participants || {});
+    if (participants.length === 0) return;
+
+    const maxPoints = calculateMaxPoints(quiz);
+    const today = new Date().toISOString().slice(0, 10);
+
+    // Cargar todas las respuestas de esta sesión de una vez
+    const answersSnap = await window.QS.db.collection("liveSessions")
+      .doc(sessionIdRef.current).collection("answers").get();
+    const answersByParticipant = {};
+    answersSnap.docs.forEach(d => {
+      const data = d.data();
+      if (!answersByParticipant[data.participantId]) answersByParticipant[data.participantId] = [];
+      answersByParticipant[data.participantId].push(data);
+    });
+
+    // Por cada participante crear un documento en results
+    const batch = window.QS.db.batch();
+    for (const p of participants) {
+      const myAnswers = answersByParticipant[p.id] || [];
+      const correctCount = myAnswers.filter(a => a.correct).length;
+      const score = p.score || 0;
+      const grade = convertToGrade(score, maxPoints, quiz.gradingScale);
+
+      // Reconstruir gradeDetail compatible con el formato asincrónico
+      const gradeDetail = quiz.questions.map((q, qIdx) => {
+        const ans = myAnswers.find(a => a.questionIdx === qIdx);
+        return {
+          qid: q.id,
+          type: q.type,
+          userAnswer: ans?.answer ?? null,
+          correct: ans?.correct ?? false,
+          points: ans?.points ?? 0,
+          pointsMax: (q.pointsCorrect ?? 100) + (q.pointsSpeedBonus ?? 0),
+        };
+      });
+
+      const resultData = {
+        quizId: quiz.id,
+        quizTitle: quiz.title || "Quiz",
+        ownerId: uid,
+        studentName: p.name || "Sin nombre",
+        studentCourse: p.course || "Sin curso",
+        examDate: today,
+        mode: "live",  // distintivo
+        sessionCode: session.code,
+        answers: {},  // No tenemos formato exacto como asincrónico, dejamos vacío
+        gradeDetail,
+        correct: correctCount,
+        total: quiz.questions.length,
+        score: grade,
+        percent: maxPoints > 0 ? Math.round((score / maxPoints) * 100) : 0,
+        pointsEarned: score,
+        pointsMax: maxPoints,
+        submittedAt: Date.now(),
+      };
+
+      const docRef = window.QS.db.collection("results").doc();
+      batch.set(docRef, resultData);
+    }
+    await batch.commit();
   };
 
   const cancelSession = async () => {
@@ -615,38 +726,11 @@ function StudentJoinLive({ initialCode, onCancel }) {
   const [code, setCode] = useStateL(initialCode || "");
   const [name, setName] = useStateL("");
   const [course, setCourse] = useStateL("");
-  const [step, setStep] = useStateL(initialCode ? "checking" : "code"); // code | checking | identify | joining | live
+  const [step, setStep] = useStateL(initialCode ? "identify" : "code"); // code | identify | joining | live
   const [error, setError] = useStateL("");
   const [session, setSession] = useStateL(null);
   const [participantId, setParticipantId] = useStateL(null);
   const [quiz, setQuiz] = useStateL(null);
-
-  // Si llega un código por URL, cargar la sesión automáticamente
-  useEffectL(() => {
-    if (!initialCode) return;
-    let cancelled = false;
-    const autoLoad = async () => {
-      try {
-        const snap = await window.QS.db.collection("liveSessions")
-          .where("code", "==", initialCode).where("status", "==", "lobby").limit(1).get();
-        if (cancelled) return;
-        if (snap.empty) {
-          setError("Código no encontrado o la sala ya empezó.");
-          setStep("code");
-          return;
-        }
-        const doc = snap.docs[0];
-        setSession({ id: doc.id, ...doc.data() });
-        setStep("identify");
-      } catch (err) {
-        if (cancelled) return;
-        setError("Error: " + err.message);
-        setStep("code");
-      }
-    };
-    autoLoad();
-    return () => { cancelled = true; };
-  }, [initialCode]);
 
   const handleCheckCode = async () => {
     setError("");
@@ -675,14 +759,6 @@ function StudentJoinLive({ initialCode, onCancel }) {
       setError("Completa nombre y curso.");
       return;
     }
-    if (!session || !session.id) {
-      setError("La sala aún no se ha cargado. Intenta de nuevo.");
-      return;
-    }
-    if (!session.quizId) {
-      setError("La sala no tiene quiz asociado. Pídele al profesor que cree una nueva sala.");
-      return;
-    }
     setStep("joining");
     try {
       const pid = "p-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7);
@@ -698,30 +774,13 @@ function StudentJoinLive({ initialCode, onCancel }) {
         [updateKey]: participantData,
       });
       setParticipantId(pid);
-
-      // Cargar quiz (con manejo más tolerante de errores)
-      try {
-        const quizDoc = await window.QS.db.collection("quizzes").doc(session.quizId).get();
-        if (quizDoc.exists) {
-          const quizData = { id: quizDoc.id, ...quizDoc.data() };
-          // Verificar que tenga preguntas
-          if (!quizData.questions || quizData.questions.length === 0) {
-            console.warn("Quiz cargado pero sin preguntas:", quizData);
-          }
-          setQuiz(quizData);
-          setStep("live");
-        } else {
-          console.error("Quiz no existe en Firestore. quizId:", session.quizId);
-          setError("El quiz asociado a esta sala no existe. ID: " + session.quizId);
-          setStep("identify");
-        }
-      } catch (quizErr) {
-        console.error("Error leyendo quiz:", quizErr, "quizId:", session.quizId);
-        setError("Permiso denegado al leer el quiz. Detalle: " + quizErr.message);
-        setStep("identify");
+      // Cargar quiz
+      const quizDoc = await window.QS.db.collection("quizzes").doc(session.quizId).get();
+      if (quizDoc.exists) {
+        setQuiz({ id: quizDoc.id, ...quizDoc.data() });
       }
+      setStep("live");
     } catch (err) {
-      console.error("Error al unirse:", err);
       setError("Error al unirse: " + err.message);
       setStep("identify");
     }
@@ -804,13 +863,6 @@ function StudentJoinLive({ initialCode, onCancel }) {
           </>
         )}
 
-        {step === "checking" && (
-          <div style={{ textAlign: "center", padding: 20 }}>
-            <div style={{ fontSize: 32 }}>🔍</div>
-            <p>Verificando código de sala...</p>
-          </div>
-        )}
-
         {step === "joining" && (
           <div style={{ textAlign: "center", padding: 20 }}>
             <div style={{ fontSize: 32 }}>⏳</div>
@@ -832,7 +884,21 @@ function StudentLive({ sessionId, participantId, quizInitial, onExit }) {
   const [answeredAtIdx, setAnsweredAtIdx] = useStateL(-1);
   const [secondsLeft, setSecondsLeft] = useStateL(0);
   const [lastResult, setLastResult] = useStateL(null);
+  const [myAciertos, setMyAciertos] = useStateL(null);
   const myScore = (session?.participants?.[participantId]?.score) || 0;
+
+  // Al terminar la sala, contar mis aciertos para mostrarlos
+  useEffectL(() => {
+    if (session?.status !== "finished") return;
+    window.QS.db.collection("liveSessions").doc(sessionId)
+      .collection("answers").where("participantId", "==", participantId).get()
+      .then(snap => {
+        let count = 0;
+        snap.docs.forEach(d => { if (d.data().correct) count++; });
+        setMyAciertos(count);
+      })
+      .catch(err => console.error("Error contando aciertos:", err));
+  }, [session?.status]);
 
   // Suscripción a la sesión
   useEffectL(() => {
@@ -894,7 +960,7 @@ function StudentLive({ sessionId, participantId, quizInitial, onExit }) {
     const startedAt = session.questionStartedAt || Date.now();
     const secondsTaken = (Date.now() - startedAt) / 1000;
     const isCorrect = checkAnswer(currentQ, answer);
-    const points = calculatePoints(isCorrect, secondsTaken, totalSec);
+    const points = calculatePoints(currentQ, isCorrect, secondsTaken, totalSec);
 
     setMyAnswer(answer);
     setAnsweredAtIdx(qIdx);
@@ -908,8 +974,8 @@ function StudentLive({ sessionId, participantId, quizInitial, onExit }) {
           correct: isCorrect, points,
           secondsTaken, answeredAt: Date.now(),
         });
-      // Actualizar puntaje del participante
-      if (points > 0) {
+      // Actualizar puntaje del participante (permite valores negativos para penalizar)
+      if (points !== 0) {
         const scoreKey = `participants.${participantId}.score`;
         await window.QS.db.collection("liveSessions").doc(sessionId).update({
           [scoreKey]: firebase.firestore.FieldValue.increment(points),
@@ -974,25 +1040,61 @@ function StudentLive({ sessionId, participantId, quizInitial, onExit }) {
       .sort((a, b) => (b.score || 0) - (a.score || 0));
     const myRank = participants.findIndex(p => p.id === participantId) + 1;
     const totalPlayers = participants.length;
+
+    // Calcular máximo posible y nota convertida
+    const maxPoints = calculateMaxPoints(quiz);
+    const myGrade = convertToGrade(myScore, maxPoints, quiz.gradingScale);
+    const passing = myGrade >= 3.0;
+
     return (
       <div style={{
         minHeight: "100vh", display: "grid", placeItems: "center",
         background: "linear-gradient(135deg, var(--violet-600), var(--violet-900))", padding: 20,
       }}>
-        <div className="qs-card" style={{ padding: 32, textAlign: "center", maxWidth: 400 }}>
-          <div style={{ fontSize: 56, marginBottom: 12 }}>
+        <div className="qs-card" style={{ padding: 28, textAlign: "center", maxWidth: 440, width: "100%" }}>
+          <div style={{ fontSize: 48, marginBottom: 8 }}>
             {myRank === 1 ? "🥇" : myRank === 2 ? "🥈" : myRank === 3 ? "🥉" : "🏁"}
           </div>
-          <h2 style={{ fontSize: 24, marginBottom: 8 }}>¡Quiz terminado!</h2>
-          <p style={{ color: "var(--ink-500)", marginBottom: 20 }}>
+          <h2 style={{ fontSize: 22, marginBottom: 4 }}>¡Quiz terminado!</h2>
+          <p style={{ color: "var(--ink-500)", marginBottom: 16, fontSize: 14 }}>
             Quedaste en el puesto <b>{myRank}</b> de {totalPlayers}
           </p>
-          <div style={{ padding: 20, background: "var(--violet-50)", borderRadius: 14, marginBottom: 20 }}>
-            <p style={{ fontSize: 13, color: "var(--violet-700)", fontWeight: 600 }}>TU PUNTAJE</p>
-            <p style={{ fontSize: 40, fontFamily: "var(--font-display)", fontWeight: 800, color: "var(--violet-700)" }}>
-              {myScore} pts
-            </p>
+
+          {/* Aciertos */}
+          {myAciertos != null && (
+            <div style={{
+              background: "var(--ink-50)", padding: 12, borderRadius: 10, marginBottom: 10,
+            }}>
+              <div style={{ fontSize: 12, color: "var(--ink-500)", fontWeight: 600 }}>Aciertos</div>
+              <div style={{ fontSize: 22, fontWeight: 800, fontFamily: "var(--font-display)" }}>
+                {myAciertos} de {quiz.questions.length}
+              </div>
+            </div>
+          )}
+
+          {/* Puntaje */}
+          <div style={{
+            background: "var(--violet-50)", padding: 14, borderRadius: 12, marginBottom: 10,
+          }}>
+            <div style={{ fontSize: 12, color: "var(--violet-700)", fontWeight: 600 }}>Puntaje obtenido</div>
+            <div style={{ fontSize: 28, fontWeight: 800, fontFamily: "var(--font-display)", color: "var(--violet-700)" }}>
+              {myScore}
+              <span style={{ fontSize: 14, opacity: 0.7 }}> / {maxPoints}</span>
+            </div>
           </div>
+
+          {/* Nota convertida */}
+          <div style={{
+            background: passing ? "#d1fae5" : "#fef3c7",
+            color: passing ? "#065f46" : "#92400e",
+            padding: 20, borderRadius: 14, marginBottom: 16,
+          }}>
+            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>TU NOTA</div>
+            <div style={{ fontSize: 48, fontWeight: 800, fontFamily: "var(--font-display)", lineHeight: 1 }}>
+              {myGrade.toFixed(1)}
+            </div>
+          </div>
+
           <button onClick={onExit} className="qs-btn qs-btn--primary qs-btn--lg" style={{ width: "100%" }}>Salir</button>
         </div>
       </div>
