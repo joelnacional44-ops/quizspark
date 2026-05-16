@@ -184,10 +184,16 @@ function Dashboard({ onOpenEditor, onLaunch, onResults }) {
             }}>
               <I.plus size={18} /> Nuevo quiz
             </button>
-            <button className="qs-btn" onClick={() => onLaunch()} style={{
+            <button className="qs-btn" onClick={() => {
+              if (quizzes.length === 0) {
+                alert("Crea primero un quiz para poder iniciar una sala.");
+              } else {
+                onLaunch(quizzes[0].id);
+              }
+            }} style={{
               background: "rgba(255,255,255,.18)", color: "#fff", boxShadow: "0 0 0 2px rgba(255,255,255,.4) inset",
             }}>
-              <I.play size={16} /> Sesión rápida
+              <I.play size={16} /> Sala con último quiz
             </button>
           </div>
         </div>
@@ -311,7 +317,7 @@ function Dashboard({ onOpenEditor, onLaunch, onResults }) {
                   <I.edit size={14}/> Editar
                 </button>
                 <button onClick={() => onLaunch(q.id)} className="qs-btn qs-btn--primary qs-btn--sm" style={{ flex: 1 }}>
-                  <I.play size={14}/> Iniciar
+                  🎮 Sala en vivo
                 </button>
               </div>
             </div>
@@ -503,7 +509,7 @@ function Editor({ quizId, onBack, onLaunch }) {
             {saving ? "Guardando..." : "💾 Guardar"}
           </button>
           <button className="qs-btn qs-btn--success" onClick={() => onLaunch(quiz.id)}>
-            <I.play size={14}/> Lanzar
+            🎮 Sala en vivo
           </button>
         </div>
       </div>

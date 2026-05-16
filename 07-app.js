@@ -1,20 +1,20 @@
-/* global React, ReactDOM, TopNav, Dashboard, Editor, HostFlow, ResultsDashboard, ParticipantFlow, I */
+/* global React, ReactDOM, TopNav, Dashboard, Editor, I */
 // ============================================================
 // QuizSpark — App shell + router + autenticación
 // ============================================================
 const { useState: useStateA, useEffect: useEffectA } = React;
 
-// Detectar parámetro ?exam=CODE en la URL para modo estudiante (sin login)
-function getExamCodeFromURL() {
+function getURLParam(name) {
   try {
     const params = new URLSearchParams(window.location.search);
-    return params.get("exam");
+    return params.get(name);
   } catch (e) { return null; }
 }
 
 function App() {
-  // Detectar modo estudiante (URL con ?exam=...)
-  const [examCode] = useStateA(getExamCodeFromURL());
+  // Detección de modos especiales por URL
+  const [examCode] = useStateA(getURLParam("exam"));   // evaluación asincrónica
+  const [joinCode] = useStateA(getURLParam("join"));   // sala en vivo
 
   // ---- Estado de autenticación ----
   const [authChecking, setAuthChecking] = useStateA(true);
@@ -22,14 +22,16 @@ function App() {
   const [user, setUser] = useStateA(null);
   const [userData, setUserData] = useStateA(null);
 
-  // ---- Estado de la app ----
+  // ---- Estado de la app (profesor) ----
   const [view, setView] = useStateA("dashboard");
   const [editingId, setEditingId] = useStateA(null);
+  const [liveQuizId, setLiveQuizId] = useStateA(null);
   const [showAdmin, setShowAdmin] = useStateA(false);
+  const [showJoinFromNav, setShowJoinFromNav] = useStateA(false);
 
-  // ---- Listener de sesión Firebase (solo si NO estamos en modo estudiante) ----
+  // ---- Listener de sesión Firebase (solo si NO estamos en modo estudiante por URL) ----
   useEffectA(() => {
-    if (examCode) {
+    if (examCode || joinCode) {
       setAuthChecking(false);
       return;
     }
@@ -60,7 +62,7 @@ function App() {
       setAuthChecking(false);
     });
     return () => unsub();
-  }, [examCode]);
+  }, [examCode, joinCode]);
 
   const handleLogout = async () => {
     await window.QS.auth.signOut();
@@ -68,12 +70,18 @@ function App() {
     setShowAdmin(false);
   };
 
-  // MODO ESTUDIANTE
+  // ===== MODOS ESPECIALES POR URL (sin login) =====
   if (examCode) {
     return <window.QS.StudentExam examCode={examCode} />;
   }
+  if (joinCode) {
+    return <window.QS.StudentJoinLive
+      initialCode={joinCode}
+      onCancel={() => window.location.href = window.location.origin + window.location.pathname}
+    />;
+  }
 
-  // MODO PROFESOR
+  // ===== MODO PROFESOR (requiere login) =====
   if (authChecking) return <window.QS.AuthLoading message="Verificando sesión..." />;
 
   if (!user) {
@@ -86,19 +94,40 @@ function App() {
   if (userData?.status === "pending") {
     return <window.QS.PendingScreen user={userData} onLogout={handleLogout} />;
   }
-
   if (userData?.status === "rejected") {
     return <window.QS.RejectedScreen onLogout={handleLogout} />;
   }
-
   if (showAdmin && userData?.role === "admin") {
     return <window.QS.AdminPanel onClose={() => setShowAdmin(false)} />;
   }
 
+  // ===== VISTA: SALA EN VIVO (profesor) =====
+  if (view === "live" && liveQuizId) {
+    return <window.QS.LiveSessionHost
+      quizId={liveQuizId}
+      onExit={() => { setView("dashboard"); setLiveQuizId(null); }}
+    />;
+  }
+
+  // ===== VISTA: JOIN desde botón TopNav =====
+  if (showJoinFromNav) {
+    return <window.QS.StudentJoinLive onCancel={() => setShowJoinFromNav(false)} />;
+  }
+
   const handleNav = (target) => {
-    if (target === "join") setView("participant");
+    if (target === "join") setShowJoinFromNav(true);
     else if (target === "admin") setShowAdmin(true);
     else setView(target);
+  };
+
+  // Función global para lanzar sala en vivo desde Dashboard/Editor
+  const startLiveSession = (quizId) => {
+    if (!quizId || String(quizId).startsWith("new-")) {
+      alert("Primero guarda el quiz antes de iniciar una sala en vivo.");
+      return;
+    }
+    setLiveQuizId(quizId);
+    setView("live");
   };
 
   return (
@@ -106,7 +135,7 @@ function App() {
       <TopNav
         active={view}
         onNav={handleNav}
-        onLaunch={() => setView("host")}
+        onLaunch={() => alert("Selecciona un quiz desde 'Mis quizzes' para iniciar una sala en vivo.")}
         user={userData}
         onLogout={handleLogout}
         onAdmin={userData?.role === "admin" ? () => setShowAdmin(true) : null}
@@ -115,7 +144,7 @@ function App() {
       {view === "dashboard" && (
         <Dashboard
           onOpenEditor={(id) => { setEditingId(id); setView("editor"); }}
-          onLaunch={(id) => { setEditingId(id); setView("host"); }}
+          onLaunch={startLiveSession}
           onResults={() => setView("results")}
         />
       )}
@@ -123,20 +152,14 @@ function App() {
         <Editor
           quizId={editingId}
           onBack={() => setView("dashboard")}
-          onLaunch={() => setView("host")}
+          onLaunch={startLiveSession}
         />
-      )}
-      {view === "host" && (
-        <HostFlow onBack={() => setView("dashboard")} onResults={() => setView("results")}/>
       )}
       {view === "results" && (
         <window.QS.OnlineResultsPanel onBack={() => setView("dashboard")}/>
       )}
       {view === "library" && (
         <LibraryView onBack={() => setView("dashboard")}/>
-      )}
-      {view === "participant" && (
-        <ParticipantFlow onExit={() => setView("dashboard")}/>
       )}
     </div>
   );

@@ -22,23 +22,30 @@
 </head>
 <body>
   <div id="root"></div>
-
   <noscript>
     <p style="text-align:center;padding:2rem;font-family:sans-serif;">
       Esta aplicación requiere JavaScript habilitado.
     </p>
   </noscript>
 
+  <!-- Configuración + auth -->
   <script src="00-firebase.js"></script>
   <script type="text/babel" data-presets="react" src="00b-auth.js"></script>
 
+  <!-- Núcleo (íconos, datos base, helpers) y panel de ajustes -->
   <script type="text/babel" data-presets="react" src="01-core.js"></script>
   <script type="text/babel" data-presets="react" src="02-tweaks.js"></script>
+
+  <!-- Creator (TopNav, Dashboard, Editor) -->
   <script type="text/babel" data-presets="react" src="03-creator.js"></script>
-  <script type="text/babel" data-presets="react" src="04-host.js"></script>
-  <script type="text/babel" data-presets="react" src="05-participant.js"></script>
-  <script type="text/babel" data-presets="react" src="06-results.js"></script>
+
+  <!-- Evaluación asincrónica online (estudiantes con enlace) -->
   <script type="text/babel" data-presets="react" src="08-online.js"></script>
+
+  <!-- Sala en vivo tipo Kahoot -->
+  <script type="text/babel" data-presets="react" src="09-live.js"></script>
+
+  <!-- App principal (debe ir al final) -->
   <script type="text/babel" data-presets="react" src="07-app.js"></script>
 </body>
 </html>
