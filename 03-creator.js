@@ -19,12 +19,12 @@ function TopNav({ active, onNav, onLaunch, user, onLogout, onAdmin }) {
         <button onClick={() => onNav("dashboard")} style={{
           display: "flex", alignItems: "center", gap: 10, fontFamily: "var(--font-display)",
           fontWeight: 800, fontSize: 22, color: "var(--violet-700)",
+          background: "transparent", border: "none", cursor: "pointer", padding: 0,
         }}>
           <span style={{
-            width: 36, height: 36, borderRadius: 12,
+            width: 36, height: 36, borderRadius: 10,
             background: "linear-gradient(135deg, var(--violet-500), var(--pink-500))",
-            display: "grid", placeItems: "center", color: "#fff",
-            boxShadow: "0 4px 0 var(--violet-700)",
+            display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#fff",
           }}>
             <I.spark size={20} stroke="#fff" sw={2.5} />
           </span>
@@ -41,6 +41,7 @@ function TopNav({ active, onNav, onLaunch, user, onLogout, onAdmin }) {
               background: active === item.id ? "var(--violet-100)" : "transparent",
               color: active === item.id ? "var(--violet-700)" : "var(--ink-500)",
               fontWeight: 700, fontSize: 14,
+              border: "none", cursor: "pointer",
             }}>{item.label}</button>
           ))}
         </nav>
@@ -337,16 +338,16 @@ function Editor({ quizId, onBack, onLaunch }) {
     questions: [{
       id: "qq-" + Date.now(),
       type: "multi",
-      text: "Escribe tu pregunta aquí",
+      text: "",
       timer: 20,
       pointsCorrect: 100,
       pointsWrong: 0,
       pointsSpeedBonus: 0,
       options: [
-        { id: "a", text: "Opción A", correct: true },
-        { id: "b", text: "Opción B", correct: false },
-        { id: "c", text: "Opción C", correct: false },
-        { id: "d", text: "Opción D", correct: false },
+        { id: "a", text: "", correct: true },
+        { id: "b", text: "", correct: false },
+        { id: "c", text: "", correct: false },
+        { id: "d", text: "", correct: false },
       ],
     }],
     gradingScale: [
@@ -372,11 +373,11 @@ function Editor({ quizId, onBack, onLaunch }) {
           if (!data.questions || data.questions.length === 0) {
             data.questions = [{
               id: "qq-" + Date.now(), type: "multi",
-              text: "Escribe tu pregunta aquí", timer: 20,
+              text: "", timer: 20,
               pointsCorrect: 100, pointsWrong: 0, pointsSpeedBonus: 0,
               options: [
-                { id: "a", text: "Opción A", correct: true },
-                { id: "b", text: "Opción B", correct: false },
+                { id: "a", text: "", correct: true },
+                { id: "b", text: "", correct: false },
               ],
             }];
           } else {
@@ -563,13 +564,23 @@ function Editor({ quizId, onBack, onLaunch }) {
                       <Tico size={12} /> {t?.label}
                     </div>
                   </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                     <button onClick={(e) => { e.stopPropagation(); duplicateQuestion(i); }} title="Duplicar"
-                      style={{ width: 22, height: 22, borderRadius: 6, color: "var(--ink-500)" }}>
+                      style={{
+                        width: 24, height: 24, borderRadius: 6, color: "var(--ink-500)",
+                        background: "transparent", border: "none", cursor: "pointer",
+                        display: "inline-flex", alignItems: "center", justifyContent: "center",
+                        padding: 0,
+                      }}>
                       <I.copy size={14}/>
                     </button>
                     <button onClick={(e) => { e.stopPropagation(); deleteQuestion(i); }} title="Eliminar"
-                      style={{ width: 22, height: 22, borderRadius: 6, color: "var(--red-500)" }}>
+                      style={{
+                        width: 24, height: 24, borderRadius: 6, color: "var(--red-500)",
+                        background: "transparent", border: "none", cursor: "pointer",
+                        display: "inline-flex", alignItems: "center", justifyContent: "center",
+                        padding: 0,
+                      }}>
                       <I.trash size={14}/>
                     </button>
                   </div>
@@ -674,23 +685,13 @@ function Editor({ quizId, onBack, onLaunch }) {
 
             <textarea value={active.text}
               onChange={e => updateQuestion({ text: e.target.value })}
-              placeholder="Escribe tu pregunta..."
+              placeholder="Escribe tu pregunta aquí..."
               style={{
                 width: "100%", border: "2px dashed var(--ink-200)", borderRadius: 16,
                 padding: 20, fontSize: 22, fontWeight: 700, fontFamily: "var(--font-display)",
                 resize: "none", outline: "none", minHeight: 80, marginBottom: 20,
                 background: "var(--ink-50)", color: "var(--ink-900)",
               }}/>
-
-            {/* Image / cover slot */}
-            <div style={{
-              border: "2px dashed var(--ink-200)", borderRadius: 16, padding: 20,
-              textAlign: "center", color: "var(--ink-400)", marginBottom: 20,
-              background: "var(--ink-50)", fontSize: 14, fontWeight: 600,
-            }}>
-              <div style={{ fontSize: 28, marginBottom: 4 }}>🖼️</div>
-              Agregar imagen o medio (opcional)
-            </div>
 
             {/* Options */}
             {active.type === "text" ? (
@@ -717,7 +718,8 @@ function Editor({ quizId, onBack, onLaunch }) {
                     <div style={{ fontSize: 22, opacity: .85, width: 24, textAlign: "center" }}>{tileShape(i)}</div>
                     <input value={o.text}
                       onChange={e => updateOption(o.id, { text: e.target.value })}
-                      placeholder="Opción..." style={{
+                      placeholder={`Opción ${String.fromCharCode(65 + i)}...`}
+                      style={{
                         flex: 1, background: "rgba(255,255,255,.2)", color: "#fff",
                         border: 0, outline: 0, padding: "8px 12px", borderRadius: 10,
                         fontWeight: 600, fontSize: 15, minWidth: 0,
