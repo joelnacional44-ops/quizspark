@@ -406,21 +406,33 @@ function Editor({ quizId, onBack, onLaunch }) {
     try {
       const uid = window.QS.currentUser?.uid;
       if (!uid) throw new Error("No hay sesión activa");
-      const data = { ...quiz, ownerId: uid, updatedAt: Date.now() };
+
+      // Limpiar el id interno antes de guardar (no debe ir dentro del documento)
+      const { id: _ignoreId, ...dataNoId } = quiz;
+      const data = { ...dataNoId, ownerId: uid, updatedAt: Date.now() };
+
+      let realId;
       if (String(quiz.id).startsWith("new-") || !quiz.id) {
         const docRef = await window.QS.db.collection("quizzes").add(data);
-        setQuiz(q => ({ ...q, id: docRef.id }));
+        realId = docRef.id;
+        // Sobrescribir con el id correcto adentro
+        await window.QS.db.collection("quizzes").doc(realId).update({ id: realId });
+        setQuiz(q => ({ ...q, id: realId }));
       } else {
-        await window.QS.db.collection("quizzes").doc(quiz.id).set(data, { merge: true });
+        realId = quiz.id;
+        // Asegurar que el campo id dentro del doc coincida con el ID real
+        await window.QS.db.collection("quizzes").doc(realId).set(
+          { ...data, id: realId }, { merge: true }
+        );
       }
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus(""), 2500);
-      return true;
+      return realId;
     } catch (err) {
       console.error("Error guardando:", err);
       setSaveStatus("error");
       alert("Error al guardar: " + err.message);
-      return false;
+      return null;
     } finally {
       setSaving(false);
     }
@@ -524,7 +536,21 @@ function Editor({ quizId, onBack, onLaunch }) {
           <button onClick={handleSave} disabled={saving} className="qs-btn qs-btn--primary qs-btn--sm">
             {saving ? "Guardando..." : "💾 Guardar"}
           </button>
-          <button className="qs-btn qs-btn--success" onClick={() => onLaunch(quiz.id)}>
+          <button className="qs-btn qs-btn--success" onClick={async () => {
+            // Si el id es temporal o nunca se guardó, forzar guardar primero
+            let realId = quiz.id;
+            if (!realId || String(realId).startsWith("new-")) {
+              realId = await handleSave();
+              if (!realId) {
+                alert("No se pudo guardar el quiz. Inténtalo de nuevo antes de lanzar la sala.");
+                return;
+              }
+            } else {
+              // Si ya tiene id real, guardar cambios pendientes silenciosamente
+              await handleSave();
+            }
+            onLaunch(realId);
+          }}>
             🎮 Sala en vivo
           </button>
         </div>
