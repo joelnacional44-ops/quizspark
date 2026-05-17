@@ -785,6 +785,8 @@ function OnlineResultsPanel({ onBack }) {
   const [loading, setLoading] = useStateO(true);
   const [filterCourse, setFilterCourse] = useStateO("");
   const [filterDate, setFilterDate] = useStateO("");
+  const [viewMode, setViewMode] = useStateO("tabla"); // "tabla" | "respuestas"
+  const [expandedRow, setExpandedRow] = useStateO(null);
 
   // Cargar quizzes propios al montar
   useEffectO(() => {
@@ -848,77 +850,130 @@ function OnlineResultsPanel({ onBack }) {
     }
   };
 
+  // Helper: obtener el texto legible de una respuesta dada
+  const getAnswerText = (q, userAns) => {
+    if (userAns == null || userAns === "") return "(sin respuesta)";
+    if (q.type === "multi" || q.type === "truefalse") {
+      const opt = (q.options || []).find(o => o.id === userAns);
+      return opt ? opt.text : "(sin respuesta)";
+    }
+    if (q.type === "checks") {
+      const arr = Array.isArray(userAns) ? userAns : [];
+      if (arr.length === 0) return "(sin respuesta)";
+      return arr.map(id => {
+        const o = (q.options || []).find(x => x.id === id);
+        return o ? o.text : id;
+      }).join(" | ");
+    }
+    if (q.type === "text") {
+      return String(userAns);
+    }
+    return String(userAns);
+  };
+
+  // Helper: nombre del tipo de pregunta
+  const getQuestionTypeName = (type) => {
+    const types = {
+      "multi": "Opción múltiple",
+      "truefalse": "Verdadero/Falso",
+      "checks": "Selección múltiple",
+      "text": "Respuesta corta",
+    };
+    return types[type] || type;
+  };
+
   const downloadExcel = () => {
     if (!selectedQuiz || filtered.length === 0) {
       alert("No hay registros para descargar.");
       return;
     }
-    // Construimos CSV (compatible con Excel y Google Sheets)
-    const header = ["Nombre", "Curso", "Fecha", "Nota", "Puntos obtenidos", "Puntos máximos", "Aciertos", "Total preguntas", "% Correcto", "Tiempo (segundos)", "Enviado"];
-    selectedQuiz.questions.forEach((q, i) => {
-      header.push(`P${i+1}: ${q.text.substring(0, 50)}`);
-      header.push(`P${i+1} ¿correcto?`);
-      header.push(`P${i+1} puntos obtenidos`);
-    });
-    const rows = filtered.map(s => {
-      const row = [
-        s.studentName,
-        s.studentCourse,
-        s.examDate,
-        (s.score || 0).toFixed(2),
-        s.pointsEarned != null ? s.pointsEarned : "",
-        s.pointsMax != null ? s.pointsMax : "",
-        s.correct || 0,
-        s.total || 0,
-        (s.percent || 0) + "%",
-        s.totalSeconds || 0,
-        new Date(s.submittedAt || 0).toLocaleString("es-CO"),
-      ];
-      selectedQuiz.questions.forEach(q => {
+    if (typeof XLSX === "undefined") {
+      alert("La librería de Excel aún no se cargó. Recarga la página e intenta de nuevo.");
+      return;
+    }
+
+    // ========== HOJA 1: RESUMEN ==========
+    const resumenData = filtered.map(s => ({
+      "Estudiante": s.studentName || "",
+      "Curso": s.studentCourse || "",
+      "Fecha": s.examDate || "",
+      "Modo": s.mode === "live" ? "Sala en vivo" : "Asincrónico",
+      "Nota": typeof s.score === "number" ? +s.score.toFixed(2) : 0,
+      "Puntos obtenidos": s.pointsEarned != null ? s.pointsEarned : "",
+      "Puntos máximos": s.pointsMax != null ? s.pointsMax : "",
+      "Aciertos": s.correct || 0,
+      "Total preguntas": s.total || 0,
+      "% Correcto": (s.percent || 0) + "%",
+      "Tiempo (segundos)": s.totalSeconds || 0,
+      "Enviado el": s.submittedAt ? new Date(s.submittedAt).toLocaleString("es-CO") : "",
+    }));
+
+    // ========== HOJA 2: RESPUESTAS DETALLADAS ==========
+    // Una fila por cada respuesta de cada estudiante
+    const detalleData = [];
+    filtered.forEach(s => {
+      selectedQuiz.questions.forEach((q, qIdx) => {
         const det = (s.gradeDetail || []).find(d => d.qid === q.id);
-        let answerText = "—";
-        if (det) {
-          const userAns = det.userAnswer;
-          if (q.type === "multi" || q.type === "truefalse") {
-            const opt = (q.options || []).find(o => o.id === userAns);
-            answerText = opt ? opt.text : "(sin respuesta)";
-          } else if (q.type === "checks") {
-            const arr = Array.isArray(userAns) ? userAns : [];
-            answerText = arr.map(id => {
-              const o = (q.options || []).find(x => x.id === id);
-              return o ? o.text : id;
-            }).join(" | ");
-          } else if (q.type === "text") {
-            answerText = userAns || "(sin respuesta)";
-          }
-        }
-        row.push(answerText);
-        row.push(det ? (det.correct ? "Sí" : "No") : "");
-        row.push(det && det.points != null ? det.points : "");
+        const userAns = det?.userAnswer;
+        const answerText = getAnswerText(q, userAns);
+        detalleData.push({
+          "Estudiante": s.studentName || "",
+          "Curso": s.studentCourse || "",
+          "Fecha": s.examDate || "",
+          "# Pregunta": qIdx + 1,
+          "Pregunta": q.text || "",
+          "Tipo": getQuestionTypeName(q.type),
+          "Respuesta del estudiante": answerText,
+          "¿Correcta?": det ? (det.correct ? "Sí" : "No") : "",
+          "Puntos obtenidos": det?.points != null ? det.points : 0,
+          "Puntos máximos": det?.pointsMax != null ? det.pointsMax : ((q.pointsCorrect ?? 100) + (q.pointsSpeedBonus ?? 0)),
+        });
       });
-      return row;
     });
 
-    const escapeCsv = (val) => {
-      const s = String(val == null ? "" : val);
-      if (s.includes(",") || s.includes('"') || s.includes("\n")) {
-        return '"' + s.replace(/"/g, '""') + '"';
-      }
-      return s;
-    };
+    // Crear libro de Excel
+    const wb = XLSX.utils.book_new();
 
-    const csv = [header, ...rows].map(r => r.map(escapeCsv).join(",")).join("\n");
-    // BOM UTF-8 para que Excel abra bien acentos
-    const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    const safeTitle = (selectedQuiz.title || "quiz").replace(/[^a-z0-9_-]/gi, "_");
-    a.href = url;
-    a.download = `quizspark_${safeTitle}_${new Date().toISOString().slice(0,10)}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    // Hoja 1
+    const ws1 = XLSX.utils.json_to_sheet(resumenData);
+    // Anchos de columna sugeridos para resumen
+    ws1["!cols"] = [
+      { wch: 24 }, // Estudiante
+      { wch: 10 }, // Curso
+      { wch: 12 }, // Fecha
+      { wch: 14 }, // Modo
+      { wch: 8 },  // Nota
+      { wch: 12 }, // Puntos obt
+      { wch: 12 }, // Puntos max
+      { wch: 10 }, // Aciertos
+      { wch: 14 }, // Total preg
+      { wch: 12 }, // % Correcto
+      { wch: 14 }, // Tiempo
+      { wch: 22 }, // Enviado
+    ];
+    XLSX.utils.book_append_sheet(wb, ws1, "Resumen");
+
+    // Hoja 2
+    const ws2 = XLSX.utils.json_to_sheet(detalleData);
+    // Anchos de columna sugeridos para detalle (respuesta ancha para texto largo)
+    ws2["!cols"] = [
+      { wch: 24 }, // Estudiante
+      { wch: 10 }, // Curso
+      { wch: 12 }, // Fecha
+      { wch: 10 }, // # Pregunta
+      { wch: 50 }, // Pregunta (ancha)
+      { wch: 18 }, // Tipo
+      { wch: 60 }, // Respuesta (muy ancha para texto)
+      { wch: 12 }, // Correcta?
+      { wch: 14 }, // Puntos obt
+      { wch: 14 }, // Puntos max
+    ];
+    XLSX.utils.book_append_sheet(wb, ws2, "Respuestas detalladas");
+
+    // Generar archivo
+    const safeTitle = (selectedQuiz.title || "quiz").replace(/[^a-z0-9_-]/gi, "_").substring(0, 40);
+    const fileName = `quizspark_${safeTitle}_${new Date().toISOString().slice(0,10)}.xlsx`;
+    XLSX.writeFile(wb, fileName);
   };
 
   if (loading) {
@@ -1015,17 +1070,31 @@ function OnlineResultsPanel({ onBack }) {
                   </button>
                 )}
                 <button onClick={downloadExcel} className="qs-btn qs-btn--success">
-                  📥 Descargar Excel/CSV
+                  📥 Descargar Excel (.xlsx)
                 </button>
               </div>
 
-              {/* Tabla */}
+              {/* Toggle de vista: Tabla / Respuestas */}
+              {filtered.length > 0 && (
+                <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+                  <button
+                    onClick={() => setViewMode("tabla")}
+                    className={"qs-btn qs-btn--sm " + (viewMode === "tabla" ? "qs-btn--primary" : "qs-btn--ghost")}
+                  >📋 Vista tabla</button>
+                  <button
+                    onClick={() => setViewMode("respuestas")}
+                    className={"qs-btn qs-btn--sm " + (viewMode === "respuestas" ? "qs-btn--primary" : "qs-btn--ghost")}
+                  >📝 Ver respuestas</button>
+                </div>
+              )}
+
               {filtered.length === 0 ? (
                 <div className="qs-card" style={{ padding: 40, textAlign: "center", color: "var(--ink-500)" }}>
                   <div style={{ fontSize: 36, marginBottom: 8 }}>📭</div>
                   <p>No hay respuestas {(filterCourse || filterDate) ? "con esos filtros." : "todavía."}</p>
                 </div>
-              ) : (
+              ) : viewMode === "tabla" ? (
+                /* === VISTA TABLA === */
                 <div className="qs-card" style={{ overflow: "hidden" }}>
                   <div style={{ overflowX: "auto" }}>
                     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
@@ -1033,6 +1102,7 @@ function OnlineResultsPanel({ onBack }) {
                         <tr style={{ background: "var(--ink-50)", textAlign: "left" }}>
                           <th style={{ padding: 12, fontSize: 12 }}>Estudiante</th>
                           <th style={{ padding: 12, fontSize: 12 }}>Curso</th>
+                          <th style={{ padding: 12, fontSize: 12 }}>Modo</th>
                           <th style={{ padding: 12, fontSize: 12 }}>Fecha</th>
                           <th style={{ padding: 12, fontSize: 12 }}>Nota</th>
                           <th style={{ padding: 12, fontSize: 12 }}>Aciertos</th>
@@ -1047,6 +1117,15 @@ function OnlineResultsPanel({ onBack }) {
                           <tr key={s.id} style={{ borderTop: "1px solid var(--ink-100)" }}>
                             <td style={{ padding: 12, fontWeight: 600 }}>{s.studentName}</td>
                             <td style={{ padding: 12 }}>{s.studentCourse}</td>
+                            <td style={{ padding: 12, fontSize: 11 }}>
+                              <span style={{
+                                padding: "2px 8px", borderRadius: 6, fontWeight: 600,
+                                background: s.mode === "live" ? "#fce7f3" : "#dbeafe",
+                                color: s.mode === "live" ? "#9d174d" : "#1e40af",
+                              }}>
+                                {s.mode === "live" ? "🎮 En vivo" : "🌐 Online"}
+                              </span>
+                            </td>
                             <td style={{ padding: 12 }}>{s.examDate}</td>
                             <td style={{ padding: 12 }}>
                               <span style={{
@@ -1079,6 +1158,129 @@ function OnlineResultsPanel({ onBack }) {
                       </tbody>
                     </table>
                   </div>
+                </div>
+              ) : (
+                /* === VISTA RESPUESTAS (ACORDEÓN) === */
+                <div style={{ display: "grid", gap: 10 }}>
+                  {filtered.map(s => {
+                    const isOpen = expandedRow === s.id;
+                    return (
+                      <div key={s.id} className="qs-card" style={{ overflow: "hidden" }}>
+                        {/* Cabecera clickeable */}
+                        <button
+                          onClick={() => setExpandedRow(isOpen ? null : s.id)}
+                          style={{
+                            width: "100%", padding: 16, background: "transparent",
+                            border: "none", cursor: "pointer", textAlign: "left",
+                            display: "flex", alignItems: "center", justifyContent: "space-between",
+                            gap: 12, flexWrap: "wrap",
+                          }}
+                        >
+                          <div style={{ display: "flex", alignItems: "center", gap: 12, flex: 1, minWidth: 0 }}>
+                            <div style={{
+                              width: 38, height: 38, borderRadius: "50%",
+                              background: `linear-gradient(135deg, var(--violet-500), var(--pink-500))`,
+                              display: "grid", placeItems: "center", color: "#fff", fontWeight: 800, flexShrink: 0,
+                            }}>{(s.studentName || "?").charAt(0).toUpperCase()}</div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontWeight: 700, fontSize: 15 }}>{s.studentName}</div>
+                              <div style={{ fontSize: 12, color: "var(--ink-500)" }}>
+                                {s.studentCourse} · {s.examDate} ·
+                                <span style={{
+                                  marginLeft: 6, padding: "1px 6px", borderRadius: 4, fontSize: 10, fontWeight: 600,
+                                  background: s.mode === "live" ? "#fce7f3" : "#dbeafe",
+                                  color: s.mode === "live" ? "#9d174d" : "#1e40af",
+                                }}>{s.mode === "live" ? "🎮 En vivo" : "🌐 Online"}</span>
+                              </div>
+                            </div>
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            <span style={{
+                              fontWeight: 700, padding: "4px 12px", borderRadius: 8, fontSize: 14,
+                              background: s.score >= 3 ? "#d1fae5" : "#fee2e2",
+                              color: s.score >= 3 ? "#065f46" : "#991b1b",
+                            }}>{(s.score || 0).toFixed(1)}</span>
+                            <span style={{ fontSize: 13, color: "var(--ink-500)" }}>
+                              {s.correct}/{s.total}
+                            </span>
+                            <span style={{ fontSize: 18, color: "var(--ink-400)" }}>
+                              {isOpen ? "▲" : "▼"}
+                            </span>
+                          </div>
+                        </button>
+
+                        {/* Detalle expandido */}
+                        {isOpen && (
+                          <div style={{
+                            padding: "0 16px 16px", borderTop: "1px solid var(--ink-100)",
+                          }}>
+                            <div style={{ display: "grid", gap: 10, marginTop: 14 }}>
+                              {selectedQuiz.questions.map((q, qIdx) => {
+                                const det = (s.gradeDetail || []).find(d => d.qid === q.id);
+                                const userAns = det?.userAnswer;
+                                const answerText = getAnswerText(q, userAns);
+                                const isCorrect = det?.correct;
+                                const hasAnswer = det && userAns != null && userAns !== "";
+
+                                return (
+                                  <div key={q.id} style={{
+                                    padding: 12, borderRadius: 10,
+                                    background: !hasAnswer ? "#f1f5f9" : (isCorrect ? "#f0fdf4" : "#fef2f2"),
+                                    borderLeft: "4px solid " + (!hasAnswer ? "#94a3b8" : (isCorrect ? "#10b981" : "#ef4444")),
+                                  }}>
+                                    <div style={{ display: "flex", gap: 8, alignItems: "start", marginBottom: 6 }}>
+                                      <span style={{
+                                        background: "var(--violet-100)", color: "var(--violet-700)",
+                                        padding: "2px 8px", borderRadius: 6, fontSize: 11, fontWeight: 700,
+                                        flexShrink: 0,
+                                      }}>P{qIdx + 1}</span>
+                                      <span style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-700)" }}>
+                                        {q.text}
+                                      </span>
+                                    </div>
+                                    <div style={{
+                                      fontSize: 11, color: "var(--ink-500)", marginBottom: 4, marginLeft: 32,
+                                    }}>
+                                      {getQuestionTypeName(q.type)}
+                                    </div>
+                                    <div style={{
+                                      marginLeft: 32, padding: 10, borderRadius: 8,
+                                      background: "var(--white)", border: "1px solid var(--ink-200)",
+                                      fontSize: 14,
+                                      fontStyle: !hasAnswer ? "italic" : "normal",
+                                      color: !hasAnswer ? "var(--ink-400)" : "var(--ink-900)",
+                                      whiteSpace: "pre-wrap", wordBreak: "break-word",
+                                    }}>
+                                      <div style={{ fontSize: 11, color: "var(--ink-500)", marginBottom: 2, fontWeight: 600 }}>
+                                        Respuesta:
+                                      </div>
+                                      {answerText}
+                                    </div>
+                                    <div style={{
+                                      marginLeft: 32, marginTop: 6, display: "flex", gap: 12,
+                                      fontSize: 12, color: "var(--ink-500)",
+                                    }}>
+                                      {det && (
+                                        <span style={{
+                                          fontWeight: 700,
+                                          color: isCorrect ? "var(--emerald-600)" : "var(--red-500)",
+                                        }}>
+                                          {isCorrect ? "✓ Correcta" : "✗ Incorrecta"}
+                                        </span>
+                                      )}
+                                      <span>
+                                        Puntos: <b>{det?.points ?? 0}</b> / {det?.pointsMax ?? ((q.pointsCorrect ?? 100) + (q.pointsSpeedBonus ?? 0))}
+                                      </span>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </>
