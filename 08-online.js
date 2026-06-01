@@ -824,6 +824,7 @@ function OnlineResultsPanel({ onBack }) {
   }, [selectedQuizId]);
 
   const selectedQuiz = quizzes.find(q => q.id === selectedQuizId);
+  const [showDuplicates, setShowDuplicates] = useStateO(false);
 
   // Filtros
   const filtered = submissions.filter(s => {
@@ -832,12 +833,33 @@ function OnlineResultsPanel({ onBack }) {
     return true;
   });
 
+  // Deduplicación: mismo nombre + mismo curso → quedarse con el más reciente
+  const deduplicated = (() => {
+    const seen = {};
+    const dupes = [];
+    const unique = [];
+    // Ordenar por fecha más reciente primero
+    const sorted = [...filtered].sort((a, b) => (b.submittedAt || 0) - (a.submittedAt || 0));
+    for (const s of sorted) {
+      const key = (s.studentName || "").trim().toLowerCase() + "||" + (s.studentCourse || "").trim().toLowerCase();
+      if (seen[key]) {
+        dupes.push(s); // duplicado, lo marcamos
+      } else {
+        seen[key] = true;
+        unique.push(s);
+      }
+    }
+    return { unique, dupes, hasDupes: dupes.length > 0 };
+  })();
+
+  const displayList = showDuplicates ? filtered : deduplicated.unique;
+
   const stats = {
-    total: filtered.length,
-    avgScore: filtered.length > 0
-      ? (filtered.reduce((s, x) => s + (x.score || 0), 0) / filtered.length).toFixed(2)
+    total: displayList.length,
+    avgScore: displayList.length > 0
+      ? (displayList.reduce((s, x) => s + (x.score || 0), 0) / displayList.length).toFixed(2)
       : "0.00",
-    passing: filtered.filter(x => x.score >= 3.0).length,
+    passing: displayList.filter(x => x.score >= 3.0).length,
   };
 
   const deleteSubmission = async (id) => {
@@ -847,6 +869,20 @@ function OnlineResultsPanel({ onBack }) {
       setSubmissions(submissions.filter(s => s.id !== id));
     } catch (err) {
       alert("Error al eliminar: " + err.message);
+    }
+  };
+
+  // Eliminar todos los duplicados de una vez
+  const deleteAllDuplicates = async () => {
+    if (deduplicated.dupes.length === 0) return;
+    if (!confirm(`¿Eliminar ${deduplicated.dupes.length} registros duplicados? Se conservará el más reciente de cada estudiante.`)) return;
+    try {
+      for (const dupe of deduplicated.dupes) {
+        await window.QS.db.collection("results").doc(dupe.id).delete();
+      }
+      setSubmissions(submissions.filter(s => !deduplicated.dupes.find(d => d.id === s.id)));
+    } catch (err) {
+      alert("Error al eliminar duplicados: " + err.message);
     }
   };
 
@@ -883,7 +919,7 @@ function OnlineResultsPanel({ onBack }) {
   };
 
   const downloadExcel = () => {
-    if (!selectedQuiz || filtered.length === 0) {
+    if (!selectedQuiz || displayList.length === 0) {
       alert("No hay registros para descargar.");
       return;
     }
@@ -893,7 +929,7 @@ function OnlineResultsPanel({ onBack }) {
     }
 
     // ========== HOJA 1: RESUMEN ==========
-    const resumenData = filtered.map(s => ({
+    const resumenData = displayList.map(s => ({
       "Estudiante": s.studentName || "",
       "Curso": s.studentCourse || "",
       "Fecha": s.examDate || "",
@@ -911,7 +947,7 @@ function OnlineResultsPanel({ onBack }) {
     // ========== HOJA 2: RESPUESTAS DETALLADAS ==========
     // Una fila por cada respuesta de cada estudiante
     const detalleData = [];
-    filtered.forEach(s => {
+    displayList.forEach(s => {
       selectedQuiz.questions.forEach((q, qIdx) => {
         const det = (s.gradeDetail || []).find(d => d.qid === q.id);
         const userAns = det?.userAnswer;
@@ -1074,8 +1110,38 @@ function OnlineResultsPanel({ onBack }) {
                 </button>
               </div>
 
+              {/* Banner de duplicados detectados */}
+              {deduplicated.hasDupes && (
+                <div style={{
+                  padding: 12, borderRadius: 10, marginBottom: 12,
+                  background: "#fef3c7", border: "1px solid #fbbf24",
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  gap: 12, flexWrap: "wrap",
+                }}>
+                  <div style={{ fontSize: 13, color: "#92400e" }}>
+                    ⚠️ <b>{deduplicated.dupes.length} respuesta{deduplicated.dupes.length > 1 ? "s" : ""} duplicada{deduplicated.dupes.length > 1 ? "s" : ""}</b> detectada{deduplicated.dupes.length > 1 ? "s" : ""}.
+                    Mismo nombre y curso. Mostrando solo la más reciente.
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button
+                      onClick={() => setShowDuplicates(!showDuplicates)}
+                      className="qs-btn qs-btn--ghost qs-btn--sm"
+                    >
+                      {showDuplicates ? "Ocultar duplicados" : "Ver todos"}
+                    </button>
+                    <button
+                      onClick={deleteAllDuplicates}
+                      className="qs-btn qs-btn--sm"
+                      style={{ background: "#ef4444", color: "white" }}
+                    >
+                      🗑️ Borrar duplicados
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Toggle de vista: Tabla / Respuestas */}
-              {filtered.length > 0 && (
+              {displayList.length > 0 && (
                 <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
                   <button
                     onClick={() => setViewMode("tabla")}
@@ -1088,7 +1154,7 @@ function OnlineResultsPanel({ onBack }) {
                 </div>
               )}
 
-              {filtered.length === 0 ? (
+              {displayList.length === 0 ? (
                 <div className="qs-card" style={{ padding: 40, textAlign: "center", color: "var(--ink-500)" }}>
                   <div style={{ fontSize: 36, marginBottom: 8 }}>📭</div>
                   <p>No hay respuestas {(filterCourse || filterDate) ? "con esos filtros." : "todavía."}</p>
@@ -1113,7 +1179,7 @@ function OnlineResultsPanel({ onBack }) {
                         </tr>
                       </thead>
                       <tbody>
-                        {filtered.map(s => (
+                        {displayList.map(s => (
                           <tr key={s.id} style={{ borderTop: "1px solid var(--ink-100)" }}>
                             <td style={{ padding: 12, fontWeight: 600 }}>{s.studentName}</td>
                             <td style={{ padding: 12 }}>{s.studentCourse}</td>
@@ -1162,7 +1228,7 @@ function OnlineResultsPanel({ onBack }) {
               ) : (
                 /* === VISTA RESPUESTAS (ACORDEÓN) === */
                 <div style={{ display: "grid", gap: 10 }}>
-                  {filtered.map(s => {
+                  {displayList.map(s => {
                     const isOpen = expandedRow === s.id;
                     return (
                       <div key={s.id} className="qs-card" style={{ overflow: "hidden" }}>
