@@ -617,7 +617,7 @@ function StudentExam({ examCode }) {
     <div style={{
       minHeight: "100vh",
       background: "linear-gradient(135deg, var(--violet-600), var(--violet-900))",
-      padding: "12px 10px 100px",
+      padding: "12px 10px 80px",
     }}>
       <div style={{ maxWidth: 720, margin: "0 auto" }}>
         {/* Header con progreso */}
@@ -745,29 +745,38 @@ function StudentExam({ examCode }) {
           )}
         </div>
 
-        {/* Navegación */}
-        <div style={{ display: "flex", gap: 10 }}>
-          <button
-            onClick={handlePrev}
-            disabled={currentIdx === 0}
-            className="qs-btn qs-btn--lg"
-            style={{
-              flex: 1, background: "rgba(255,255,255,0.2)", color: "white",
-              opacity: currentIdx === 0 ? 0.5 : 1,
-            }}
-          >← Anterior</button>
-          <button
-            onClick={handleNext}
-            disabled={!isAnswered}
-            className="qs-btn qs-btn--lg"
-            style={{
-              flex: 2, background: "var(--white)", color: "var(--violet-700)",
-              fontWeight: 700, opacity: !isAnswered ? 0.5 : 1,
-            }}
-          >
-            {currentIdx < totalQ - 1 ? "Siguiente →" : "Enviar evaluación ✓"}
-          </button>
         </div>
+      </div>
+
+      {/* Navegación — fija en la parte inferior, siempre visible */}
+      <div style={{
+        position: "fixed", bottom: 0, left: 0, right: 0,
+        padding: "12px 16px",
+        background: "linear-gradient(to top, rgba(76,29,149,0.98) 80%, transparent)",
+        display: "flex", gap: 10, zIndex: 50,
+      }}>
+        <button
+          onClick={handlePrev}
+          disabled={currentIdx === 0}
+          className="qs-btn qs-btn--lg"
+          style={{
+            flex: 1, background: "rgba(255,255,255,0.2)", color: "white",
+            opacity: currentIdx === 0 ? 0.4 : 1,
+            border: "1px solid rgba(255,255,255,0.3)",
+          }}
+        >← Anterior</button>
+        <button
+          onClick={handleNext}
+          disabled={!isAnswered}
+          className="qs-btn qs-btn--lg"
+          style={{
+            flex: 2, background: isAnswered ? "var(--white)" : "rgba(255,255,255,0.3)",
+            color: isAnswered ? "var(--violet-700)" : "rgba(255,255,255,0.6)",
+            fontWeight: 700,
+          }}
+        >
+          {currentIdx < totalQ - 1 ? "Siguiente →" : "Enviar evaluación ✓"}
+        </button>
       </div>
     </div>
   );

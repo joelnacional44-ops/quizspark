@@ -1430,7 +1430,7 @@ function StudentLive({ sessionId, participantId, quizInitial, onExit }) {
       <div style={{
         minHeight: "100vh",
         background: "linear-gradient(135deg, var(--violet-600), var(--violet-900))",
-        padding: "12px 10px 80px",
+        padding: "12px 10px 16px",
       }}>
         <div style={{ maxWidth: 600, margin: "0 auto" }}>
           <div style={{
@@ -1454,9 +1454,10 @@ function StudentLive({ sessionId, participantId, quizInitial, onExit }) {
                 <button key={opt.id}
                   onClick={() => submitAnswer(opt.id)}
                   style={{
-                    padding: "18px 20px", borderRadius: 14, background: colors[i % 4],
-                    color: "white", fontSize: 17, fontWeight: 700, textAlign: "left",
+                    padding: "16px 16px", borderRadius: 14, background: colors[i % 4],
+                    color: "white", fontSize: 16, fontWeight: 700, textAlign: "left",
                     border: "none", cursor: "pointer", boxShadow: "var(--shadow-tile)",
+                    minHeight: 56, lineHeight: 1.3,
                   }}
                 >{opt.text}</button>
               ))}
