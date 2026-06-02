@@ -695,7 +695,7 @@ function Editor({ quizId, onBack, onLaunch }) {
                 </div>
               </div>
             ) : (
-              <div style={{ display: "grid", gap: 10,
+              <div className="qs-options-grid" style={{ display: "grid", gap: 10,
                 gridTemplateColumns: active.type === "truefalse" ? "1fr 1fr" : "1fr 1fr" }}>
                 {active.options.map((o, i) => (
                   <div key={o.id} style={{

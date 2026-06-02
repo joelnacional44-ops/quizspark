@@ -57,6 +57,7 @@ body {
   background: var(--ink-50);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
 }
 h1, h2, h3, h4 { font-family: var(--font-display); margin: 0; }
 button { font-family: inherit; }
@@ -198,6 +199,17 @@ button { font-family: inherit; }
   .qs-editor-canvas {
     padding: 20px 16px;
   }
+  /* La tarjeta del editor nunca debe exceder el ancho de pantalla */
+  .qs-editor-canvas > .qs-card {
+    max-width: 100% !important;
+    width: 100%;
+  }
+  /* Evita que cualquier hijo fuerce scroll horizontal */
+  .qs-editor-list,
+  .qs-editor-canvas,
+  .qs-editor-config { min-width: 0; max-width: 100%; overflow-x: hidden; }
+  /* Opciones de respuesta en una sola columna en móvil */
+  .qs-options-grid { grid-template-columns: 1fr !important; }
   /* El editor deja de tener altura fija para poder hacer scroll natural */
   .qs-editor-root {
     height: auto !important;
