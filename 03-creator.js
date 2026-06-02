@@ -206,7 +206,7 @@ function Dashboard({ onOpenEditor, onLaunch, onResults }) {
       </div>
 
       {/* Stats */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 32 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 16, marginBottom: 32 }}>
         {[
           { label: "Quizzes creados", value: quizzes.length, icon: "list", c: "var(--violet-500)" },
           { label: "Sesiones jugadas", value: quizzes.reduce((s, q) => s + (q.plays || 0), 0), icon: "play", c: "var(--pink-500)" },
@@ -486,24 +486,17 @@ function Editor({ quizId, onBack, onLaunch }) {
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 73px)" }}>
+    <div className="qs-editor-root" style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 73px)" }}>
       {/* Editor toolbar */}
-      <div style={{
-        display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "12px 24px", background: "var(--white)", borderBottom: "1px solid var(--ink-200)",
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, flex: 1 }}>
+      <div className="qs-editor-header">
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flex: 1, minWidth: 0 }}>
           <button onClick={onBack} className="qs-btn qs-btn--ghost qs-btn--sm">
             <I.back size={16} /> Salir
           </button>
           <input value={quiz.title} onChange={e => setQuiz({ ...quiz, title: e.target.value })}
-            style={{
-              fontSize: 18, fontWeight: 700, fontFamily: "var(--font-display)",
-              border: 0, outline: 0, background: "transparent", padding: "6px 10px",
-              borderRadius: 8, minWidth: 320, color: "var(--ink-900)",
-            }}/>
+            className="qs-editor-title"/>
         </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div className="qs-editor-actions">
           {saveStatus === "saved" && (
             <span style={{ fontSize: 13, color: "var(--emerald-600)", fontWeight: 600 }}>
               ✓ Guardado
@@ -530,12 +523,9 @@ function Editor({ quizId, onBack, onLaunch }) {
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "260px 1fr 320px", flex: 1, minHeight: 0 }}>
+      <div className="qs-editor-grid">
         {/* Question list */}
-        <aside style={{
-          background: "var(--white)", borderRight: "1px solid var(--ink-200)",
-          padding: 16, overflowY: "auto",
-        }}>
+        <aside className="qs-editor-list">
           <div style={{ fontSize: 12, fontWeight: 800, color: "var(--ink-500)", letterSpacing: ".05em", marginBottom: 10 }}>
             PREGUNTAS · {quiz.questions.length}
           </div>
@@ -609,9 +599,7 @@ function Editor({ quizId, onBack, onLaunch }) {
         </aside>
 
         {/* Center: question canvas */}
-        <main style={{
-          background: "var(--ink-50)", padding: "32px 40px", overflowY: "auto",
-        }}>
+        <main className="qs-editor-canvas">
           <div className="qs-card" style={{ padding: 28, maxWidth: 800, margin: "0 auto" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
               <span className="qs-chip">
@@ -749,10 +737,7 @@ function Editor({ quizId, onBack, onLaunch }) {
         </main>
 
         {/* Right: settings panel */}
-        <aside style={{
-          background: "var(--white)", borderLeft: "1px solid var(--ink-200)",
-          padding: 20, overflowY: "auto",
-        }}>
+        <aside className="qs-editor-config">
           <h3 style={{ fontSize: 15, marginBottom: 14 }}>Configuración del quiz</h3>
 
           <Field label="Acceso">
