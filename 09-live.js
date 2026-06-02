@@ -220,8 +220,9 @@ function HostLobby({ session, quiz, onStart, onCancel }) {
 // ============================================================
 // HOST QUESTION — el profe mira la pregunta en curso
 // ============================================================
-function HostQuestion({ session, quiz, currentQ, answersThisQ, totalParticipants, onSkip, onReveal }) {
-  const totalSeconds = currentQ.timer || 20;
+function HostQuestion({ session, quiz, currentQ, answersThisQ, totalParticipants, onSkip, onReveal, onAddTime, onFinish }) {
+  const extraSeconds = session.extraSeconds || 0;
+  const totalSeconds = (currentQ.timer || 20) + extraSeconds;
   const startedAt = session.questionStartedAt || Date.now();
   const [secondsLeft, setSecondsLeft] = useStateL(totalSeconds);
 
@@ -315,11 +316,27 @@ function HostQuestion({ session, quiz, currentQ, answersThisQ, totalParticipants
               }} />
             </div>
           </div>
-          <button onClick={onReveal} className="qs-btn qs-btn--lg" style={{
-            background: "white", color: "var(--violet-700)", fontWeight: 800,
-          }}>
-            ⏭️ Mostrar respuesta
-          </button>
+          <div style={{ display: "grid", gap: 10 }}>
+            <button onClick={onReveal} className="qs-btn qs-btn--lg" style={{
+              background: "white", color: "var(--violet-700)", fontWeight: 800,
+            }}>
+              ⏭️ Mostrar respuesta
+            </button>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <button onClick={onAddTime} className="qs-btn" style={{
+                background: "rgba(255,255,255,0.18)", color: "white", fontWeight: 700,
+                boxShadow: "0 0 0 2px rgba(255,255,255,.4) inset",
+              }}>
+                ⏱️ +10s
+              </button>
+              <button onClick={onFinish} className="qs-btn" style={{
+                background: "var(--red-500)", color: "white", fontWeight: 700,
+                boxShadow: "0 4px 0 #991b1b",
+              }}>
+                🏁 Finalizar
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -568,6 +585,28 @@ function LiveSessionHost({ quizId, onExit }) {
       currentQuestionIdx: 0,
       questionStartedAt: Date.now(),
       startedAt: Date.now(),
+      extraSeconds: 0,
+    });
+  };
+
+  // Aumentar el tiempo de la pregunta actual (visible para host y estudiantes)
+  const addTime = async (seconds = 10) => {
+    await window.QS.db.collection("liveSessions").doc(sessionIdRef.current).update({
+      extraSeconds: firebase.firestore.FieldValue.increment(seconds),
+    });
+  };
+
+  // Finalizar el quiz inmediatamente desde cualquier pregunta
+  const finishNow = async () => {
+    if (!confirm("¿Finalizar el quiz ahora? Se guardarán los resultados con el puntaje actual.")) return;
+    try {
+      await saveLiveResults();
+    } catch (err) {
+      console.error("Error guardando resultados:", err);
+    }
+    await window.QS.db.collection("liveSessions").doc(sessionIdRef.current).update({
+      status: "finished",
+      finishedAt: Date.now(),
     });
   };
 
@@ -597,6 +636,7 @@ function LiveSessionHost({ quizId, onExit }) {
         status: "playing",
         currentQuestionIdx: nextIdx,
         questionStartedAt: Date.now(),
+        extraSeconds: 0,
       });
     }
   };
@@ -707,6 +747,7 @@ function LiveSessionHost({ quizId, onExit }) {
       session={session} quiz={quiz} currentQ={currentQ}
       answersThisQ={answersThisQ} totalParticipants={participants.length}
       onReveal={revealCurrent} onSkip={revealCurrent}
+      onAddTime={() => addTime(10)} onFinish={finishNow}
     />;
   }
   if (session.status === "showResults") {
@@ -979,7 +1020,7 @@ function StudentLive({ sessionId, participantId, quizInitial, onExit }) {
     if (!session || session.status !== "playing") return;
     const currentQ = quiz.questions[session.currentQuestionIdx];
     if (!currentQ) return;
-    const totalSec = currentQ.timer || 20;
+    const totalSec = (currentQ.timer || 20) + (session.extraSeconds || 0);
     const startedAt = session.questionStartedAt || Date.now();
     const tick = () => {
       const elapsed = (Date.now() - startedAt) / 1000;
@@ -988,7 +1029,7 @@ function StudentLive({ sessionId, participantId, quizInitial, onExit }) {
     tick();
     const id = setInterval(tick, 200);
     return () => clearInterval(id);
-  }, [session?.questionStartedAt, session?.status]);
+  }, [session?.questionStartedAt, session?.status, session?.extraSeconds]);
 
   // Cargar mi último resultado cuando entramos a "showResults"
   useEffectL(() => {
@@ -1174,17 +1215,13 @@ function StudentLive({ sessionId, participantId, quizInitial, onExit }) {
               <h2 style={{ fontSize: 22, marginBottom: 8 }}>Se acabó el tiempo</h2>
               <p style={{ color: "var(--ink-500)", marginBottom: 16 }}>No alcanzaste a responder</p>
             </>
-          ) : lastResult?.correct ? (
-            <>
-              <div style={{ fontSize: 64, marginBottom: 8 }} className="qs-pop-in">🎉</div>
-              <h2 style={{ fontSize: 26, color: "var(--emerald-600)", marginBottom: 8 }}>¡Correcto!</h2>
-              <p style={{ color: "var(--ink-500)", marginBottom: 12 }}>+{lastResult.points} puntos</p>
-            </>
           ) : (
             <>
-              <div style={{ fontSize: 56, marginBottom: 8 }}>❌</div>
-              <h2 style={{ fontSize: 22, color: "var(--red-500)", marginBottom: 8 }}>Incorrecto</h2>
-              <p style={{ color: "var(--ink-500)", marginBottom: 16 }}>¡Suerte en la siguiente!</p>
+              <div style={{ fontSize: 56, marginBottom: 8 }} className="qs-bob">📨</div>
+              <h2 style={{ fontSize: 22, marginBottom: 8 }}>Respuesta registrada</h2>
+              <p style={{ color: "var(--ink-500)", marginBottom: 12 }}>
+                El profesor revisará los resultados en un momento.
+              </p>
             </>
           )}
           <div style={{
@@ -1219,13 +1256,23 @@ function StudentLive({ sessionId, participantId, quizInitial, onExit }) {
             <div style={{ fontSize: 56, marginBottom: 12 }} className="qs-bob">⏳</div>
             <h2 style={{ fontSize: 22, marginBottom: 8 }}>¡Respuesta enviada!</h2>
             <p style={{ color: "var(--ink-500)" }}>Esperando que terminen los demás...</p>
-            <div style={{
-              marginTop: 20, padding: 14, background: "var(--violet-50)", borderRadius: 10,
-            }}>
-              <p style={{ fontSize: 12, color: "var(--violet-700)", fontWeight: 600 }}>TU PUNTAJE</p>
-              <p style={{ fontSize: 24, fontFamily: "var(--font-display)", fontWeight: 800, color: "var(--violet-700)" }}>
-                {myScore} pts
-              </p>
+            <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+              <div style={{
+                flex: 1, padding: 14, background: "var(--ink-50)", borderRadius: 10,
+              }}>
+                <p style={{ fontSize: 12, color: "var(--ink-500)", fontWeight: 600 }}>TIEMPO</p>
+                <p style={{ fontSize: 24, fontFamily: "var(--font-display)", fontWeight: 800, color: "var(--ink-700)" }}>
+                  {Math.ceil(secondsLeft)}s
+                </p>
+              </div>
+              <div style={{
+                flex: 1, padding: 14, background: "var(--violet-50)", borderRadius: 10,
+              }}>
+                <p style={{ fontSize: 12, color: "var(--violet-700)", fontWeight: 600 }}>TU PUNTAJE</p>
+                <p style={{ fontSize: 24, fontFamily: "var(--font-display)", fontWeight: 800, color: "var(--violet-700)" }}>
+                  {myScore} pts
+                </p>
+              </div>
             </div>
           </div>
         </div>
@@ -1244,10 +1291,18 @@ function StudentLive({ sessionId, participantId, quizInitial, onExit }) {
             color: "white", marginBottom: 12,
           }}>
             <span style={{ fontWeight: 600 }}>Pregunta {session.currentQuestionIdx + 1} / {quiz.questions.length}</span>
-            <span style={{
-              background: "white", color: "var(--violet-700)", padding: "6px 14px",
-              borderRadius: 10, fontWeight: 800, fontFamily: "var(--font-display)",
-            }}>{Math.ceil(secondsLeft)}s</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{
+                background: "rgba(255,255,255,0.18)", color: "white", padding: "6px 12px",
+                borderRadius: 10, fontWeight: 700, fontSize: 14,
+              }}>⭐ {myScore} pts</span>
+              <span style={{
+                background: "white",
+                color: secondsLeft < 5 ? "var(--red-500)" : "var(--violet-700)",
+                padding: "6px 14px",
+                borderRadius: 10, fontWeight: 800, fontFamily: "var(--font-display)",
+              }}>{Math.ceil(secondsLeft)}s</span>
+            </div>
           </div>
 
           <div className="qs-card" style={{ padding: 20, marginBottom: 16 }}>
