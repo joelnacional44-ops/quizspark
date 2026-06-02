@@ -979,7 +979,7 @@ function StudentLive({ sessionId, participantId, quizInitial, onExit }) {
   const [myAnswer, setMyAnswer] = useStateL(null);
   const [answeredAtIdx, setAnsweredAtIdx] = useStateL(-1);
   const [secondsLeft, setSecondsLeft] = useStateL(0);
-  const [lastResult, setLastResult] = useStateL(null);
+  const [myResultThisQ, setMyResultThisQ] = useStateL(null); // resultado local de la pregunta actual
   const [myAciertos, setMyAciertos] = useStateL(null);
   const myScore = (session?.participants?.[participantId]?.score) || 0;
 
@@ -1012,6 +1012,7 @@ function StudentLive({ sessionId, participantId, quizInitial, onExit }) {
     if (!session) return;
     if (session.currentQuestionIdx !== answeredAtIdx) {
       setMyAnswer(null);
+      setMyResultThisQ(null);
     }
   }, [session?.currentQuestionIdx]);
 
@@ -1031,21 +1032,9 @@ function StudentLive({ sessionId, participantId, quizInitial, onExit }) {
     return () => clearInterval(id);
   }, [session?.questionStartedAt, session?.status, session?.extraSeconds]);
 
-  // Cargar mi último resultado cuando entramos a "showResults"
-  useEffectL(() => {
-    if (session?.status === "showResults" && session.currentQuestionIdx >= 0) {
-      const qIdx = session.currentQuestionIdx;
-      const docId = `${participantId}-${qIdx}`;
-      window.QS.db.collection("liveSessions").doc(sessionId)
-        .collection("answers").doc(docId).get()
-        .then(doc => {
-          if (doc.exists) setLastResult(doc.data());
-          else setLastResult({ noAnswer: true });
-        });
-    } else {
-      setLastResult(null);
-    }
-  }, [session?.status, session?.currentQuestionIdx]);
+  // El resultado del reveal se calcula directamente en el render desde
+  // myResultThisQ (guardado en memoria al responder). No usamos efecto ni
+  // relectura de Firestore para evitar parpadeos y problemas de timing.
 
   const submitAnswer = async (answer) => {
     if (!session || session.status !== "playing") return;
@@ -1060,6 +1049,7 @@ function StudentLive({ sessionId, participantId, quizInitial, onExit }) {
 
     setMyAnswer(answer);
     setAnsweredAtIdx(qIdx);
+    setMyResultThisQ({ correct: isCorrect, points });
 
     try {
       // Guardar respuesta
@@ -1200,28 +1190,35 @@ function StudentLive({ sessionId, participantId, quizInitial, onExit }) {
   const currentQ = quiz.questions[session.currentQuestionIdx];
   if (!currentQ) return null;
 
-  // === Mostrando respuesta correcta ===
+  // === Mostrando respuesta correcta (el docente reveló) ===
   if (session.status === "showResults") {
     const isLast = session.currentQuestionIdx >= quiz.questions.length - 1;
+    // Resultado tomado directamente de memoria: respondió esta pregunta o no.
+    const answeredThis = answeredAtIdx === session.currentQuestionIdx && myResultThisQ;
+    const reveal = answeredThis ? myResultThisQ : { noAnswer: true };
     return (
       <div style={{
         minHeight: "100vh", display: "grid", placeItems: "center",
         background: "linear-gradient(135deg, var(--violet-600), var(--violet-900))", padding: 20,
       }}>
         <div className="qs-card" style={{ padding: 28, textAlign: "center", maxWidth: 420, width: "100%" }}>
-          {lastResult?.noAnswer ? (
+          {reveal.noAnswer ? (
             <>
               <div style={{ fontSize: 56, marginBottom: 8 }}>⏰</div>
               <h2 style={{ fontSize: 22, marginBottom: 8 }}>Se acabó el tiempo</h2>
               <p style={{ color: "var(--ink-500)", marginBottom: 16 }}>No alcanzaste a responder</p>
             </>
+          ) : reveal.correct ? (
+            <>
+              <div style={{ fontSize: 64, marginBottom: 8 }} className="qs-pop-in">🎉</div>
+              <h2 style={{ fontSize: 26, color: "var(--emerald-600)", marginBottom: 8 }}>¡Correcto!</h2>
+              <p style={{ color: "var(--ink-500)", marginBottom: 12 }}>+{reveal.points} puntos</p>
+            </>
           ) : (
             <>
-              <div style={{ fontSize: 56, marginBottom: 8 }} className="qs-bob">📨</div>
-              <h2 style={{ fontSize: 22, marginBottom: 8 }}>Respuesta registrada</h2>
-              <p style={{ color: "var(--ink-500)", marginBottom: 12 }}>
-                El profesor revisará los resultados en un momento.
-              </p>
+              <div style={{ fontSize: 56, marginBottom: 8 }}>❌</div>
+              <h2 style={{ fontSize: 22, color: "var(--red-500)", marginBottom: 8 }}>Incorrecto</h2>
+              <p style={{ color: "var(--ink-500)", marginBottom: 16 }}>¡Suerte en la siguiente!</p>
             </>
           )}
           <div style={{
