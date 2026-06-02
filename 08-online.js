@@ -438,7 +438,7 @@ function StudentExam({ examCode }) {
   if (phase === "loading") {
     return (
       <div style={{
-        minHeight: "100dvh", display: "grid", placeItems: "center",
+        minHeight: "100vh", display: "grid", placeItems: "center",
         background: "linear-gradient(135deg, var(--violet-600), var(--violet-900))", color: "white",
       }}>
         <div style={{ textAlign: "center" }}>
@@ -452,7 +452,7 @@ function StudentExam({ examCode }) {
   if (phase === "error") {
     return (
       <div style={{
-        minHeight: "100dvh", display: "grid", placeItems: "center",
+        minHeight: "100vh", display: "grid", placeItems: "center",
         background: "linear-gradient(135deg, var(--violet-600), var(--violet-900))", padding: 20,
       }}>
         <div className="qs-card" style={{ padding: 32, maxWidth: 440, textAlign: "center" }}>
@@ -470,7 +470,7 @@ function StudentExam({ examCode }) {
   if (phase === "identify") {
     return (
       <div style={{
-        minHeight: "100dvh",
+        minHeight: "100vh",
         background: "linear-gradient(135deg, var(--violet-600), var(--violet-900))",
         display: "grid", placeItems: "center", padding: 20,
       }}>
@@ -534,7 +534,7 @@ function StudentExam({ examCode }) {
   if (phase === "submitting") {
     return (
       <div style={{
-        minHeight: "100dvh", display: "grid", placeItems: "center",
+        minHeight: "100vh", display: "grid", placeItems: "center",
         background: "linear-gradient(135deg, var(--violet-600), var(--violet-900))", color: "white",
       }}>
         <div style={{ textAlign: "center" }}>
@@ -549,7 +549,7 @@ function StudentExam({ examCode }) {
     const passing = result.score >= 3.0;
     return (
       <div style={{
-        minHeight: "100dvh",
+        minHeight: "100vh",
         background: "linear-gradient(135deg, var(--violet-600), var(--violet-900))",
         display: "grid", placeItems: "center", padding: 20,
       }}>
@@ -615,9 +615,9 @@ function StudentExam({ examCode }) {
 
   return (
     <div style={{
-      minHeight: "100dvh",
+      minHeight: "100vh",
       background: "linear-gradient(135deg, var(--violet-600), var(--violet-900))",
-      padding: "12px 10px 80px",
+      padding: 20, paddingBottom: 100,
     }}>
       <div style={{ maxWidth: 720, margin: "0 auto" }}>
         {/* Header con progreso */}
@@ -745,34 +745,7 @@ function StudentExam({ examCode }) {
           )}
         </div>
 
-        </div>
-      </div>
-
-      {/* Navegación — fija en la parte inferior, siempre visible */}
-      <div style={{
-        position: "fixed", bottom: 0, left: 0, right: 0,
-        padding: "12px 16px",
-        background: "linear-gradient(to top, rgba(76,29,149,0.98) 80%, transparent)",
-        display: "flex", flexDirection: "column", gap: 8, zIndex: 50,
-      }}>
-        {/* Botón de finalizar anticipado — visible si ya respondió al menos 1 pero no todas */}
-        {Object.keys(answers).length > 0 && currentIdx < totalQ - 1 && (
-          <button
-            onClick={() => {
-              if (confirm(`¿Enviar el quiz con ${Object.keys(answers).length} de ${totalQ} preguntas respondidas? Las preguntas sin responder quedarán en blanco.`)) {
-                handleSubmit();
-              }
-            }}
-            className="qs-btn"
-            style={{
-              width: "100%", background: "rgba(255,255,255,0.15)",
-              color: "rgba(255,255,255,0.85)", fontSize: 13,
-              border: "1px solid rgba(255,255,255,0.25)",
-            }}
-          >
-            ⏹ Finalizar con {Object.keys(answers).length}/{totalQ} respondidas
-          </button>
-        )}
+        {/* Navegación */}
         <div style={{ display: "flex", gap: 10 }}>
           <button
             onClick={handlePrev}
@@ -780,8 +753,7 @@ function StudentExam({ examCode }) {
             className="qs-btn qs-btn--lg"
             style={{
               flex: 1, background: "rgba(255,255,255,0.2)", color: "white",
-              opacity: currentIdx === 0 ? 0.4 : 1,
-              border: "1px solid rgba(255,255,255,0.3)",
+              opacity: currentIdx === 0 ? 0.5 : 1,
             }}
           >← Anterior</button>
           <button
@@ -789,9 +761,8 @@ function StudentExam({ examCode }) {
             disabled={!isAnswered}
             className="qs-btn qs-btn--lg"
             style={{
-              flex: 2, background: isAnswered ? "var(--white)" : "rgba(255,255,255,0.3)",
-              color: isAnswered ? "var(--violet-700)" : "rgba(255,255,255,0.6)",
-              fontWeight: 700,
+              flex: 2, background: "var(--white)", color: "var(--violet-700)",
+              fontWeight: 700, opacity: !isAnswered ? 0.5 : 1,
             }}
           >
             {currentIdx < totalQ - 1 ? "Siguiente →" : "Enviar evaluación ✓"}
@@ -812,44 +783,26 @@ function OnlineResultsPanel({ onBack }) {
   const [selectedQuizId, setSelectedQuizId] = useStateO(null);
   const [submissions, setSubmissions] = useStateO([]);
   const [loading, setLoading] = useStateO(true);
-  const [loadError, setLoadError] = useStateO(null);
-  const [retryCount, setRetryCount] = useStateO(0);
   const [filterCourse, setFilterCourse] = useStateO("");
   const [filterDate, setFilterDate] = useStateO("");
-  const [viewMode, setViewMode] = useStateO("tabla");
-  const [expandedRow, setExpandedRow] = useStateO(null);
-  const [showDuplicates, setShowDuplicates] = useStateO(false);
 
   // Cargar quizzes propios al montar
   useEffectO(() => {
     const load = async () => {
-      setLoadError(null);
       try {
         const uid = window.QS.currentUser?.uid;
-        if (!uid) {
-          // Esperar un momento y reintentar (puede que Firebase aún no cargó)
-          await new Promise(r => setTimeout(r, 1500));
-          const uid2 = window.QS.currentUser?.uid;
-          if (!uid2) {
-            setLoadError("No se pudo verificar tu sesión. Intenta volver y entrar de nuevo.");
-            setLoading(false);
-            return;
-          }
-        }
-        const finalUid = window.QS.currentUser?.uid;
         const snap = await window.QS.db.collection("quizzes")
-          .where("ownerId", "==", finalUid).get();
+          .where("ownerId", "==", uid).get();
         const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         setQuizzes(list);
         if (list.length > 0) setSelectedQuizId(list[0].id);
       } catch (err) {
-        console.error("Error cargando quizzes:", err);
-        setLoadError("Error al cargar: " + err.message);
+        console.error(err);
       }
       setLoading(false);
     };
     load();
-  }, [retryCount]);
+  }, []);
 
   // Cargar submissions cuando cambia quiz seleccionado
   useEffectO(() => {
@@ -862,7 +815,7 @@ function OnlineResultsPanel({ onBack }) {
         list.sort((a, b) => (b.submittedAt || 0) - (a.submittedAt || 0));
         setSubmissions(list);
       } catch (err) {
-        console.error("Error cargando resultados:", err);
+        console.error(err);
       }
     };
     load();
@@ -877,33 +830,12 @@ function OnlineResultsPanel({ onBack }) {
     return true;
   });
 
-  // Deduplicación: mismo nombre + mismo curso → quedarse con el más reciente
-  const deduplicated = (() => {
-    const seen = {};
-    const dupes = [];
-    const unique = [];
-    // Ordenar por fecha más reciente primero
-    const sorted = [...filtered].sort((a, b) => (b.submittedAt || 0) - (a.submittedAt || 0));
-    for (const s of sorted) {
-      const key = (s.studentName || "").trim().toLowerCase() + "||" + (s.studentCourse || "").trim().toLowerCase();
-      if (seen[key]) {
-        dupes.push(s); // duplicado, lo marcamos
-      } else {
-        seen[key] = true;
-        unique.push(s);
-      }
-    }
-    return { unique, dupes, hasDupes: dupes.length > 0 };
-  })();
-
-  const displayList = showDuplicates ? filtered : deduplicated.unique;
-
   const stats = {
-    total: displayList.length,
-    avgScore: displayList.length > 0
-      ? (displayList.reduce((s, x) => s + (x.score || 0), 0) / displayList.length).toFixed(2)
+    total: filtered.length,
+    avgScore: filtered.length > 0
+      ? (filtered.reduce((s, x) => s + (x.score || 0), 0) / filtered.length).toFixed(2)
       : "0.00",
-    passing: displayList.filter(x => x.score >= 3.0).length,
+    passing: filtered.filter(x => x.score >= 3.0).length,
   };
 
   const deleteSubmission = async (id) => {
@@ -916,168 +848,83 @@ function OnlineResultsPanel({ onBack }) {
     }
   };
 
-  // Eliminar todos los duplicados de una vez
-  const deleteAllDuplicates = async () => {
-    if (deduplicated.dupes.length === 0) return;
-    if (!confirm(`¿Eliminar ${deduplicated.dupes.length} registros duplicados? Se conservará el más reciente de cada estudiante.`)) return;
-    try {
-      for (const dupe of deduplicated.dupes) {
-        await window.QS.db.collection("results").doc(dupe.id).delete();
-      }
-      setSubmissions(submissions.filter(s => !deduplicated.dupes.find(d => d.id === s.id)));
-    } catch (err) {
-      alert("Error al eliminar duplicados: " + err.message);
-    }
-  };
-
-  // Helper: obtener el texto legible de una respuesta dada
-  const getAnswerText = (q, userAns) => {
-    if (userAns == null || userAns === "") return "(sin respuesta)";
-    if (q.type === "multi" || q.type === "truefalse") {
-      const opt = (q.options || []).find(o => o.id === userAns);
-      return opt ? opt.text : "(sin respuesta)";
-    }
-    if (q.type === "checks") {
-      const arr = Array.isArray(userAns) ? userAns : [];
-      if (arr.length === 0) return "(sin respuesta)";
-      return arr.map(id => {
-        const o = (q.options || []).find(x => x.id === id);
-        return o ? o.text : id;
-      }).join(" | ");
-    }
-    if (q.type === "text") {
-      return String(userAns);
-    }
-    return String(userAns);
-  };
-
-  // Helper: nombre del tipo de pregunta
-  const getQuestionTypeName = (type) => {
-    const types = {
-      "multi": "Opción múltiple",
-      "truefalse": "Verdadero/Falso",
-      "checks": "Selección múltiple",
-      "text": "Respuesta corta",
-    };
-    return types[type] || type;
-  };
-
   const downloadExcel = () => {
-    if (!selectedQuiz || displayList.length === 0) {
+    if (!selectedQuiz || filtered.length === 0) {
       alert("No hay registros para descargar.");
       return;
     }
-    if (typeof XLSX === "undefined") {
-      alert("La librería de Excel aún no se cargó. Recarga la página e intenta de nuevo.");
-      return;
-    }
-
-    // ========== HOJA 1: RESUMEN ==========
-    const resumenData = displayList.map(s => ({
-      "Estudiante": s.studentName || "",
-      "Curso": s.studentCourse || "",
-      "Fecha": s.examDate || "",
-      "Modo": s.mode === "live" ? "Sala en vivo" : "Asincrónico",
-      "Nota": typeof s.score === "number" ? +s.score.toFixed(2) : 0,
-      "Puntos obtenidos": s.pointsEarned != null ? s.pointsEarned : "",
-      "Puntos máximos": s.pointsMax != null ? s.pointsMax : "",
-      "Aciertos": s.correct || 0,
-      "Total preguntas": s.total || 0,
-      "% Correcto": (s.percent || 0) + "%",
-      "Tiempo (segundos)": s.totalSeconds || 0,
-      "Enviado el": s.submittedAt ? new Date(s.submittedAt).toLocaleString("es-CO") : "",
-    }));
-
-    // ========== HOJA 2: RESPUESTAS DETALLADAS ==========
-    // Una fila por cada respuesta de cada estudiante
-    const detalleData = [];
-    displayList.forEach(s => {
-      selectedQuiz.questions.forEach((q, qIdx) => {
+    // Construimos CSV (compatible con Excel y Google Sheets)
+    const header = ["Nombre", "Curso", "Fecha", "Nota", "Puntos obtenidos", "Puntos máximos", "Aciertos", "Total preguntas", "% Correcto", "Tiempo (segundos)", "Enviado"];
+    selectedQuiz.questions.forEach((q, i) => {
+      header.push(`P${i+1}: ${q.text.substring(0, 50)}`);
+      header.push(`P${i+1} ¿correcto?`);
+      header.push(`P${i+1} puntos obtenidos`);
+    });
+    const rows = filtered.map(s => {
+      const row = [
+        s.studentName,
+        s.studentCourse,
+        s.examDate,
+        (s.score || 0).toFixed(2),
+        s.pointsEarned != null ? s.pointsEarned : "",
+        s.pointsMax != null ? s.pointsMax : "",
+        s.correct || 0,
+        s.total || 0,
+        (s.percent || 0) + "%",
+        s.totalSeconds || 0,
+        new Date(s.submittedAt || 0).toLocaleString("es-CO"),
+      ];
+      selectedQuiz.questions.forEach(q => {
         const det = (s.gradeDetail || []).find(d => d.qid === q.id);
-        const userAns = det?.userAnswer;
-        const answerText = getAnswerText(q, userAns);
-        detalleData.push({
-          "Estudiante": s.studentName || "",
-          "Curso": s.studentCourse || "",
-          "Fecha": s.examDate || "",
-          "# Pregunta": qIdx + 1,
-          "Pregunta": q.text || "",
-          "Tipo": getQuestionTypeName(q.type),
-          "Respuesta del estudiante": answerText,
-          "¿Correcta?": det ? (det.correct ? "Sí" : "No") : "",
-          "Puntos obtenidos": det?.points != null ? det.points : 0,
-          "Puntos máximos": det?.pointsMax != null ? det.pointsMax : ((q.pointsCorrect ?? 100) + (q.pointsSpeedBonus ?? 0)),
-        });
+        let answerText = "—";
+        if (det) {
+          const userAns = det.userAnswer;
+          if (q.type === "multi" || q.type === "truefalse") {
+            const opt = (q.options || []).find(o => o.id === userAns);
+            answerText = opt ? opt.text : "(sin respuesta)";
+          } else if (q.type === "checks") {
+            const arr = Array.isArray(userAns) ? userAns : [];
+            answerText = arr.map(id => {
+              const o = (q.options || []).find(x => x.id === id);
+              return o ? o.text : id;
+            }).join(" | ");
+          } else if (q.type === "text") {
+            answerText = userAns || "(sin respuesta)";
+          }
+        }
+        row.push(answerText);
+        row.push(det ? (det.correct ? "Sí" : "No") : "");
+        row.push(det && det.points != null ? det.points : "");
       });
+      return row;
     });
 
-    // Crear libro de Excel
-    const wb = XLSX.utils.book_new();
+    const escapeCsv = (val) => {
+      const s = String(val == null ? "" : val);
+      if (s.includes(",") || s.includes('"') || s.includes("\n")) {
+        return '"' + s.replace(/"/g, '""') + '"';
+      }
+      return s;
+    };
 
-    // Hoja 1
-    const ws1 = XLSX.utils.json_to_sheet(resumenData);
-    // Anchos de columna sugeridos para resumen
-    ws1["!cols"] = [
-      { wch: 24 }, // Estudiante
-      { wch: 10 }, // Curso
-      { wch: 12 }, // Fecha
-      { wch: 14 }, // Modo
-      { wch: 8 },  // Nota
-      { wch: 12 }, // Puntos obt
-      { wch: 12 }, // Puntos max
-      { wch: 10 }, // Aciertos
-      { wch: 14 }, // Total preg
-      { wch: 12 }, // % Correcto
-      { wch: 14 }, // Tiempo
-      { wch: 22 }, // Enviado
-    ];
-    XLSX.utils.book_append_sheet(wb, ws1, "Resumen");
-
-    // Hoja 2
-    const ws2 = XLSX.utils.json_to_sheet(detalleData);
-    // Anchos de columna sugeridos para detalle (respuesta ancha para texto largo)
-    ws2["!cols"] = [
-      { wch: 24 }, // Estudiante
-      { wch: 10 }, // Curso
-      { wch: 12 }, // Fecha
-      { wch: 10 }, // # Pregunta
-      { wch: 50 }, // Pregunta (ancha)
-      { wch: 18 }, // Tipo
-      { wch: 60 }, // Respuesta (muy ancha para texto)
-      { wch: 12 }, // Correcta?
-      { wch: 14 }, // Puntos obt
-      { wch: 14 }, // Puntos max
-    ];
-    XLSX.utils.book_append_sheet(wb, ws2, "Respuestas detalladas");
-
-    // Generar archivo
-    const safeTitle = (selectedQuiz.title || "quiz").replace(/[^a-z0-9_-]/gi, "_").substring(0, 40);
-    const fileName = `quizspark_${safeTitle}_${new Date().toISOString().slice(0,10)}.xlsx`;
-    XLSX.writeFile(wb, fileName);
+    const csv = [header, ...rows].map(r => r.map(escapeCsv).join(",")).join("\n");
+    // BOM UTF-8 para que Excel abra bien acentos
+    const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const safeTitle = (selectedQuiz.title || "quiz").replace(/[^a-z0-9_-]/gi, "_");
+    a.href = url;
+    a.download = `quizspark_${safeTitle}_${new Date().toISOString().slice(0,10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   if (loading) {
     return (
       <div style={{ padding: 40, textAlign: "center", color: "var(--ink-500)" }}>
-        <div style={{ fontSize: 32, marginBottom: 12 }}>⏳</div>
-        Cargando resultados...
-      </div>
-    );
-  }
-
-  if (loadError) {
-    return (
-      <div style={{ padding: 40, textAlign: "center", maxWidth: 500, margin: "0 auto" }}>
-        <div style={{ fontSize: 40, marginBottom: 12 }}>⚠️</div>
-        <h2 style={{ fontSize: 20, marginBottom: 8 }}>No se pudo cargar</h2>
-        <p style={{ color: "var(--ink-500)", marginBottom: 20 }}>{loadError}</p>
-        <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
-          <button onClick={() => { setLoadError(null); setLoading(true); setRetryCount(r => r + 1); }}
-            className="qs-btn qs-btn--primary">
-            🔄 Reintentar
-          </button>
-          <button onClick={onBack} className="qs-btn qs-btn--ghost">← Volver</button>
-        </div>
+        Cargando...
       </div>
     );
   }
@@ -1168,61 +1015,17 @@ function OnlineResultsPanel({ onBack }) {
                   </button>
                 )}
                 <button onClick={downloadExcel} className="qs-btn qs-btn--success">
-                  📥 Descargar Excel (.xlsx)
+                  📥 Descargar Excel/CSV
                 </button>
               </div>
 
-              {/* Banner de duplicados detectados */}
-              {deduplicated.hasDupes && (
-                <div style={{
-                  padding: 12, borderRadius: 10, marginBottom: 12,
-                  background: "#fef3c7", border: "1px solid #fbbf24",
-                  display: "flex", alignItems: "center", justifyContent: "space-between",
-                  gap: 12, flexWrap: "wrap",
-                }}>
-                  <div style={{ fontSize: 13, color: "#92400e" }}>
-                    ⚠️ <b>{deduplicated.dupes.length} respuesta{deduplicated.dupes.length > 1 ? "s" : ""} duplicada{deduplicated.dupes.length > 1 ? "s" : ""}</b> detectada{deduplicated.dupes.length > 1 ? "s" : ""}.
-                    Mismo nombre y curso. Mostrando solo la más reciente.
-                  </div>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <button
-                      onClick={() => setShowDuplicates(!showDuplicates)}
-                      className="qs-btn qs-btn--ghost qs-btn--sm"
-                    >
-                      {showDuplicates ? "Ocultar duplicados" : "Ver todos"}
-                    </button>
-                    <button
-                      onClick={deleteAllDuplicates}
-                      className="qs-btn qs-btn--sm"
-                      style={{ background: "#ef4444", color: "white" }}
-                    >
-                      🗑️ Borrar duplicados
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Toggle de vista: Tabla / Respuestas */}
-              {displayList.length > 0 && (
-                <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
-                  <button
-                    onClick={() => setViewMode("tabla")}
-                    className={"qs-btn qs-btn--sm " + (viewMode === "tabla" ? "qs-btn--primary" : "qs-btn--ghost")}
-                  >📋 Vista tabla</button>
-                  <button
-                    onClick={() => setViewMode("respuestas")}
-                    className={"qs-btn qs-btn--sm " + (viewMode === "respuestas" ? "qs-btn--primary" : "qs-btn--ghost")}
-                  >📝 Ver respuestas</button>
-                </div>
-              )}
-
-              {displayList.length === 0 ? (
+              {/* Tabla */}
+              {filtered.length === 0 ? (
                 <div className="qs-card" style={{ padding: 40, textAlign: "center", color: "var(--ink-500)" }}>
                   <div style={{ fontSize: 36, marginBottom: 8 }}>📭</div>
                   <p>No hay respuestas {(filterCourse || filterDate) ? "con esos filtros." : "todavía."}</p>
                 </div>
-              ) : viewMode === "tabla" ? (
-                /* === VISTA TABLA === */
+              ) : (
                 <div className="qs-card" style={{ overflow: "hidden" }}>
                   <div style={{ overflowX: "auto" }}>
                     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
@@ -1230,7 +1033,6 @@ function OnlineResultsPanel({ onBack }) {
                         <tr style={{ background: "var(--ink-50)", textAlign: "left" }}>
                           <th style={{ padding: 12, fontSize: 12 }}>Estudiante</th>
                           <th style={{ padding: 12, fontSize: 12 }}>Curso</th>
-                          <th style={{ padding: 12, fontSize: 12 }}>Modo</th>
                           <th style={{ padding: 12, fontSize: 12 }}>Fecha</th>
                           <th style={{ padding: 12, fontSize: 12 }}>Nota</th>
                           <th style={{ padding: 12, fontSize: 12 }}>Aciertos</th>
@@ -1241,19 +1043,10 @@ function OnlineResultsPanel({ onBack }) {
                         </tr>
                       </thead>
                       <tbody>
-                        {displayList.map(s => (
+                        {filtered.map(s => (
                           <tr key={s.id} style={{ borderTop: "1px solid var(--ink-100)" }}>
                             <td style={{ padding: 12, fontWeight: 600 }}>{s.studentName}</td>
                             <td style={{ padding: 12 }}>{s.studentCourse}</td>
-                            <td style={{ padding: 12, fontSize: 11 }}>
-                              <span style={{
-                                padding: "2px 8px", borderRadius: 6, fontWeight: 600,
-                                background: s.mode === "live" ? "#fce7f3" : "#dbeafe",
-                                color: s.mode === "live" ? "#9d174d" : "#1e40af",
-                              }}>
-                                {s.mode === "live" ? "🎮 En vivo" : "🌐 Online"}
-                              </span>
-                            </td>
                             <td style={{ padding: 12 }}>{s.examDate}</td>
                             <td style={{ padding: 12 }}>
                               <span style={{
@@ -1286,129 +1079,6 @@ function OnlineResultsPanel({ onBack }) {
                       </tbody>
                     </table>
                   </div>
-                </div>
-              ) : (
-                /* === VISTA RESPUESTAS (ACORDEÓN) === */
-                <div style={{ display: "grid", gap: 10 }}>
-                  {displayList.map(s => {
-                    const isOpen = expandedRow === s.id;
-                    return (
-                      <div key={s.id} className="qs-card" style={{ overflow: "hidden" }}>
-                        {/* Cabecera clickeable */}
-                        <button
-                          onClick={() => setExpandedRow(isOpen ? null : s.id)}
-                          style={{
-                            width: "100%", padding: 16, background: "transparent",
-                            border: "none", cursor: "pointer", textAlign: "left",
-                            display: "flex", alignItems: "center", justifyContent: "space-between",
-                            gap: 12, flexWrap: "wrap",
-                          }}
-                        >
-                          <div style={{ display: "flex", alignItems: "center", gap: 12, flex: 1, minWidth: 0 }}>
-                            <div style={{
-                              width: 38, height: 38, borderRadius: "50%",
-                              background: `linear-gradient(135deg, var(--violet-500), var(--pink-500))`,
-                              display: "grid", placeItems: "center", color: "#fff", fontWeight: 800, flexShrink: 0,
-                            }}>{(s.studentName || "?").charAt(0).toUpperCase()}</div>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontWeight: 700, fontSize: 15 }}>{s.studentName}</div>
-                              <div style={{ fontSize: 12, color: "var(--ink-500)" }}>
-                                {s.studentCourse} · {s.examDate} ·
-                                <span style={{
-                                  marginLeft: 6, padding: "1px 6px", borderRadius: 4, fontSize: 10, fontWeight: 600,
-                                  background: s.mode === "live" ? "#fce7f3" : "#dbeafe",
-                                  color: s.mode === "live" ? "#9d174d" : "#1e40af",
-                                }}>{s.mode === "live" ? "🎮 En vivo" : "🌐 Online"}</span>
-                              </div>
-                            </div>
-                          </div>
-                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                            <span style={{
-                              fontWeight: 700, padding: "4px 12px", borderRadius: 8, fontSize: 14,
-                              background: s.score >= 3 ? "#d1fae5" : "#fee2e2",
-                              color: s.score >= 3 ? "#065f46" : "#991b1b",
-                            }}>{(s.score || 0).toFixed(1)}</span>
-                            <span style={{ fontSize: 13, color: "var(--ink-500)" }}>
-                              {s.correct}/{s.total}
-                            </span>
-                            <span style={{ fontSize: 18, color: "var(--ink-400)" }}>
-                              {isOpen ? "▲" : "▼"}
-                            </span>
-                          </div>
-                        </button>
-
-                        {/* Detalle expandido */}
-                        {isOpen && (
-                          <div style={{
-                            padding: "0 16px 16px", borderTop: "1px solid var(--ink-100)",
-                          }}>
-                            <div style={{ display: "grid", gap: 10, marginTop: 14 }}>
-                              {selectedQuiz.questions.map((q, qIdx) => {
-                                const det = (s.gradeDetail || []).find(d => d.qid === q.id);
-                                const userAns = det?.userAnswer;
-                                const answerText = getAnswerText(q, userAns);
-                                const isCorrect = det?.correct;
-                                const hasAnswer = det && userAns != null && userAns !== "";
-
-                                return (
-                                  <div key={q.id} style={{
-                                    padding: 12, borderRadius: 10,
-                                    background: !hasAnswer ? "#f1f5f9" : (isCorrect ? "#f0fdf4" : "#fef2f2"),
-                                    borderLeft: "4px solid " + (!hasAnswer ? "#94a3b8" : (isCorrect ? "#10b981" : "#ef4444")),
-                                  }}>
-                                    <div style={{ display: "flex", gap: 8, alignItems: "start", marginBottom: 6 }}>
-                                      <span style={{
-                                        background: "var(--violet-100)", color: "var(--violet-700)",
-                                        padding: "2px 8px", borderRadius: 6, fontSize: 11, fontWeight: 700,
-                                        flexShrink: 0,
-                                      }}>P{qIdx + 1}</span>
-                                      <span style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-700)" }}>
-                                        {q.text}
-                                      </span>
-                                    </div>
-                                    <div style={{
-                                      fontSize: 11, color: "var(--ink-500)", marginBottom: 4, marginLeft: 32,
-                                    }}>
-                                      {getQuestionTypeName(q.type)}
-                                    </div>
-                                    <div style={{
-                                      marginLeft: 32, padding: 10, borderRadius: 8,
-                                      background: "var(--white)", border: "1px solid var(--ink-200)",
-                                      fontSize: 14,
-                                      fontStyle: !hasAnswer ? "italic" : "normal",
-                                      color: !hasAnswer ? "var(--ink-400)" : "var(--ink-900)",
-                                      whiteSpace: "pre-wrap", wordBreak: "break-word",
-                                    }}>
-                                      <div style={{ fontSize: 11, color: "var(--ink-500)", marginBottom: 2, fontWeight: 600 }}>
-                                        Respuesta:
-                                      </div>
-                                      {answerText}
-                                    </div>
-                                    <div style={{
-                                      marginLeft: 32, marginTop: 6, display: "flex", gap: 12,
-                                      fontSize: 12, color: "var(--ink-500)",
-                                    }}>
-                                      {det && (
-                                        <span style={{
-                                          fontWeight: 700,
-                                          color: isCorrect ? "var(--emerald-600)" : "var(--red-500)",
-                                        }}>
-                                          {isCorrect ? "✓ Correcta" : "✗ Incorrecta"}
-                                        </span>
-                                      )}
-                                      <span>
-                                        Puntos: <b>{det?.points ?? 0}</b> / {det?.pointsMax ?? ((q.pointsCorrect ?? 100) + (q.pointsSpeedBonus ?? 0))}
-                                      </span>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
                 </div>
               )}
             </>

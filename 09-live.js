@@ -129,13 +129,7 @@ function HostLobby({ session, quiz, onStart, onCancel }) {
           </button>
         </div>
 
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: "clamp(260px, 30%, 360px) 1fr",
-          gap: 24, alignItems: "start",
-        }}
-          className="qs-lobby-grid"
-        >
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(280px, 1fr) 2fr", gap: 24, alignItems: "start" }}>
           {/* Izquierda: código + URL */}
           <div className="qs-card" style={{ padding: 28, textAlign: "center" }}>
             <p style={{ fontSize: 13, color: "var(--ink-500)", marginBottom: 8, fontWeight: 600 }}>
@@ -226,10 +220,8 @@ function HostLobby({ session, quiz, onStart, onCancel }) {
 // ============================================================
 // HOST QUESTION — el profe mira la pregunta en curso
 // ============================================================
-function HostQuestion({ session, quiz, currentQ, answersThisQ, totalParticipants, onSkip, onReveal, onAdjustTime }) {
-  const baseSeconds = currentQ.timer || 20;
-  const timeAdj = session.timeAdjustment || 0;
-  const totalSeconds = Math.max(5, baseSeconds + timeAdj);
+function HostQuestion({ session, quiz, currentQ, answersThisQ, totalParticipants, onSkip, onReveal }) {
+  const totalSeconds = currentQ.timer || 20;
   const startedAt = session.questionStartedAt || Date.now();
   const [secondsLeft, setSecondsLeft] = useStateL(totalSeconds);
 
@@ -307,9 +299,7 @@ function HostQuestion({ session, quiz, currentQ, answersThisQ, totalParticipants
         </div>
 
         {/* Estado */}
-        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 16 }}
-          className="qs-host-bottom"
-        >
+        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 16 }}>
           <div className="qs-card" style={{ padding: 20, color: "var(--ink-900)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
               <span style={{ fontWeight: 700 }}>Respuestas recibidas</span>
@@ -317,33 +307,12 @@ function HostQuestion({ session, quiz, currentQ, answersThisQ, totalParticipants
                 {answeredCount} / {totalParticipants}
               </span>
             </div>
-            <div style={{ height: 12, background: "var(--ink-100)", borderRadius: 6, overflow: "hidden", marginBottom: 12 }}>
+            <div style={{ height: 12, background: "var(--ink-100)", borderRadius: 6, overflow: "hidden" }}>
               <div style={{
                 height: "100%", width: progress + "%",
                 background: "linear-gradient(90deg, var(--violet-500), var(--pink-500))",
                 transition: "width 0.3s ease",
               }} />
-            </div>
-            {/* Botones de ajuste de tiempo */}
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <span style={{ fontSize: 12, color: "var(--ink-500)", fontWeight: 600 }}>
-                ⏱ Tiempo:
-              </span>
-              <button
-                onClick={() => onAdjustTime(-30)}
-                className="qs-btn qs-btn--ghost qs-btn--sm"
-                style={{ padding: "4px 10px", fontSize: 13 }}
-                title="Quitar 30 segundos"
-              >−30s</button>
-              <span style={{ fontSize: 14, fontWeight: 700, color: "var(--violet-700)", minWidth: 40, textAlign: "center" }}>
-                {Math.ceil(secondsLeft)}s
-              </span>
-              <button
-                onClick={() => onAdjustTime(30)}
-                className="qs-btn qs-btn--ghost qs-btn--sm"
-                style={{ padding: "4px 10px", fontSize: 13 }}
-                title="Añadir 30 segundos"
-              >+30s</button>
             </div>
           </div>
           <button onClick={onReveal} className="qs-btn qs-btn--lg" style={{
@@ -456,9 +425,8 @@ function HostFinal({ session, quiz, onFinish }) {
 
         {/* Podio */}
         {top3.length > 0 && (
-          <div className="qs-podio" style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr 1fr",
+          <div style={{
+            display: "grid", gridTemplateColumns: "1fr 1fr 1fr",
             gap: 12, marginBottom: 24, alignItems: "end",
           }}>
             {[1, 0, 2].map(idx => {
@@ -607,16 +575,6 @@ function LiveSessionHost({ quizId, onExit }) {
     await window.QS.db.collection("liveSessions").doc(sessionIdRef.current).update({
       status: "showResults",
       revealedAt: Date.now(),
-      timeAdjustment: 0, // reset al pasar pregunta
-    });
-  };
-
-  // Ajustar tiempo de la pregunta actual (+30 o -30 segundos)
-  const adjustTime = async (delta) => {
-    const current = session.timeAdjustment || 0;
-    const newAdj = current + delta;
-    await window.QS.db.collection("liveSessions").doc(sessionIdRef.current).update({
-      timeAdjustment: newAdj,
     });
   };
 
@@ -624,9 +582,11 @@ function LiveSessionHost({ quizId, onExit }) {
     const nextIdx = session.currentQuestionIdx + 1;
     if (nextIdx >= quiz.questions.length) {
       // Terminar: primero guardar resultados de cada participante
-      const saveResult = await saveLiveResults();
-      if (saveResult && saveResult.errors > 0) {
-        alert(`⚠️ Se guardaron ${saveResult.saved} de ${saveResult.total} resultados. ${saveResult.errors} fallaron. Revisa la consola para más detalle.`);
+      try {
+        await saveLiveResults();
+      } catch (err) {
+        console.error("Error guardando resultados:", err);
+        // No bloqueamos la finalización aunque falle el guardado
       }
       await window.QS.db.collection("liveSessions").doc(sessionIdRef.current).update({
         status: "finished",
@@ -637,121 +597,75 @@ function LiveSessionHost({ quizId, onExit }) {
         status: "playing",
         currentQuestionIdx: nextIdx,
         questionStartedAt: Date.now(),
-        timeAdjustment: 0,
       });
     }
   };
 
   // Guardar resultados de la sala en vivo en la colección 'results' (para panel y Excel)
-  // Versión robusta con logging detallado y guardado uno-por-uno
   const saveLiveResults = async () => {
-    console.log("[QuizSpark] === saveLiveResults INICIADO ===");
     const uid = window.QS.currentUser?.uid;
-    console.log("[QuizSpark] uid:", uid);
-    console.log("[QuizSpark] session:", session?.id, "code:", session?.code);
-    console.log("[QuizSpark] quiz:", quiz?.id, "título:", quiz?.title);
-
-    if (!uid) {
-      console.error("[QuizSpark] ❌ No hay uid (usuario no autenticado)");
-      alert("Error: no hay sesión de profesor para guardar resultados.");
-      return { saved: 0, total: 0, errors: 1 };
-    }
-    if (!session || !quiz) {
-      console.error("[QuizSpark] ❌ No hay session o quiz cargados");
-      return { saved: 0, total: 0, errors: 1 };
-    }
-
+    if (!uid || !session || !quiz) return;
     const participants = Object.values(session.participants || {});
-    console.log("[QuizSpark] Total participantes:", participants.length);
-
-    if (participants.length === 0) {
-      console.warn("[QuizSpark] ⚠️ No hay participantes en la sala, nada que guardar");
-      return { saved: 0, total: 0, errors: 0 };
-    }
+    if (participants.length === 0) return;
 
     const maxPoints = calculateMaxPoints(quiz);
     const today = new Date().toISOString().slice(0, 10);
-    console.log("[QuizSpark] maxPoints:", maxPoints, "fecha:", today);
 
-    // Cargar todas las respuestas de esta sesión
-    let answersByParticipant = {};
-    try {
-      const answersSnap = await window.QS.db.collection("liveSessions")
-        .doc(sessionIdRef.current).collection("answers").get();
-      console.log("[QuizSpark] Total respuestas leídas:", answersSnap.size);
-      answersSnap.docs.forEach(d => {
-        const data = d.data();
-        if (!answersByParticipant[data.participantId]) answersByParticipant[data.participantId] = [];
-        answersByParticipant[data.participantId].push(data);
-      });
-    } catch (err) {
-      console.error("[QuizSpark] ❌ Error leyendo answers:", err);
-      // Continuamos aunque falle, con lo que tengamos
-    }
+    // Cargar todas las respuestas de esta sesión de una vez
+    const answersSnap = await window.QS.db.collection("liveSessions")
+      .doc(sessionIdRef.current).collection("answers").get();
+    const answersByParticipant = {};
+    answersSnap.docs.forEach(d => {
+      const data = d.data();
+      if (!answersByParticipant[data.participantId]) answersByParticipant[data.participantId] = [];
+      answersByParticipant[data.participantId].push(data);
+    });
 
-    // Guardar uno por uno (más robusto que batch)
-    let saved = 0;
-    let errors = 0;
-    const errorMessages = [];
-
+    // Por cada participante crear un documento en results
+    const batch = window.QS.db.batch();
     for (const p of participants) {
-      try {
-        const myAnswers = answersByParticipant[p.id] || [];
-        const correctCount = myAnswers.filter(a => a.correct).length;
-        const score = p.score || 0;
-        const grade = convertToGrade(score, maxPoints, quiz.gradingScale);
+      const myAnswers = answersByParticipant[p.id] || [];
+      const correctCount = myAnswers.filter(a => a.correct).length;
+      const score = p.score || 0;
+      const grade = convertToGrade(score, maxPoints, quiz.gradingScale);
 
-        const gradeDetail = quiz.questions.map((q, qIdx) => {
-          const ans = myAnswers.find(a => a.questionIdx === qIdx);
-          return {
-            qid: q.id,
-            type: q.type || "multi",
-            userAnswer: ans?.answer ?? null,
-            correct: ans?.correct ?? false,
-            points: ans?.points ?? 0,
-            pointsMax: (q.pointsCorrect ?? 100) + (q.pointsSpeedBonus ?? 0),
-          };
-        });
-
-        const resultData = {
-          quizId: quiz.id,
-          quizTitle: quiz.title || "Quiz",
-          ownerId: uid,
-          studentName: p.name || "Sin nombre",
-          studentCourse: p.course || "Sin curso",
-          examDate: today,
-          mode: "live",
-          sessionCode: session.code || "",
-          answers: {},
-          gradeDetail,
-          correct: correctCount,
-          total: quiz.questions.length,
-          score: grade,
-          percent: maxPoints > 0 ? Math.round((score / maxPoints) * 100) : 0,
-          pointsEarned: score,
-          pointsMax: maxPoints,
-          submittedAt: Date.now(),
+      // Reconstruir gradeDetail compatible con el formato asincrónico
+      const gradeDetail = quiz.questions.map((q, qIdx) => {
+        const ans = myAnswers.find(a => a.questionIdx === qIdx);
+        return {
+          qid: q.id,
+          type: q.type,
+          userAnswer: ans?.answer ?? null,
+          correct: ans?.correct ?? false,
+          points: ans?.points ?? 0,
+          pointsMax: (q.pointsCorrect ?? 100) + (q.pointsSpeedBonus ?? 0),
         };
+      });
 
-        console.log(`[QuizSpark] Guardando resultado de ${p.name}...`);
-        const docRef = await window.QS.db.collection("results").add(resultData);
-        console.log(`[QuizSpark] ✓ Guardado: ${docRef.id} (${p.name})`);
-        saved++;
-      } catch (err) {
-        errors++;
-        const msg = `Error guardando ${p.name}: ${err.message}`;
-        console.error(`[QuizSpark] ❌ ${msg}`, err);
-        errorMessages.push(msg);
-      }
+      const resultData = {
+        quizId: quiz.id,
+        quizTitle: quiz.title || "Quiz",
+        ownerId: uid,
+        studentName: p.name || "Sin nombre",
+        studentCourse: p.course || "Sin curso",
+        examDate: today,
+        mode: "live",  // distintivo
+        sessionCode: session.code,
+        answers: {},  // No tenemos formato exacto como asincrónico, dejamos vacío
+        gradeDetail,
+        correct: correctCount,
+        total: quiz.questions.length,
+        score: grade,
+        percent: maxPoints > 0 ? Math.round((score / maxPoints) * 100) : 0,
+        pointsEarned: score,
+        pointsMax: maxPoints,
+        submittedAt: Date.now(),
+      };
+
+      const docRef = window.QS.db.collection("results").doc();
+      batch.set(docRef, resultData);
     }
-
-    console.log(`[QuizSpark] === saveLiveResults TERMINADO: ${saved} guardados, ${errors} errores ===`);
-
-    if (errors > 0) {
-      console.error("[QuizSpark] Mensajes de error:", errorMessages);
-    }
-
-    return { saved, total: participants.length, errors };
+    await batch.commit();
   };
 
   const cancelSession = async () => {
@@ -793,7 +707,6 @@ function LiveSessionHost({ quizId, onExit }) {
       session={session} quiz={quiz} currentQ={currentQ}
       answersThisQ={answersThisQ} totalParticipants={participants.length}
       onReveal={revealCurrent} onSkip={revealCurrent}
-      onAdjustTime={adjustTime}
     />;
   }
   if (session.status === "showResults") {
@@ -810,69 +723,14 @@ function LiveSessionHost({ quizId, onExit }) {
 // STUDENT JOIN LIVE — entrada del estudiante con código de sala
 // ============================================================
 function StudentJoinLive({ initialCode, onCancel }) {
-  // Intentar recuperar sesión previa del sessionStorage
-  const savedSession = (() => {
-    try {
-      const s = sessionStorage.getItem("qs_live_session");
-      return s ? JSON.parse(s) : null;
-    } catch { return null; }
-  })();
-
-  const [code, setCode] = useStateL(initialCode || savedSession?.code || "");
-  const [name, setName] = useStateL(savedSession?.name || "");
-  const [course, setCourse] = useStateL(savedSession?.course || "");
-  const [step, setStep] = useStateL(() => {
-    // Si hay sesión guardada, intentar reanudar
-    if (savedSession?.participantId && savedSession?.sessionId) return "resuming";
-    if (initialCode) return "checking";
-    return "code";
-  });
+  const [code, setCode] = useStateL(initialCode || "");
+  const [name, setName] = useStateL("");
+  const [course, setCourse] = useStateL("");
+  const [step, setStep] = useStateL(initialCode ? "checking" : "code"); // code | checking | identify | joining | live
   const [error, setError] = useStateL("");
   const [session, setSession] = useStateL(null);
-  const [participantId, setParticipantId] = useStateL(savedSession?.participantId || null);
+  const [participantId, setParticipantId] = useStateL(null);
   const [quiz, setQuiz] = useStateL(null);
-
-  // Intentar reanudar sesión guardada
-  useEffectL(() => {
-    if (step !== "resuming" || !savedSession) return;
-    let cancelled = false;
-    const resume = async () => {
-      try {
-        const doc = await window.QS.db.collection("liveSessions").doc(savedSession.sessionId).get();
-        if (cancelled) return;
-        if (!doc.exists || doc.data().status === "finished" || doc.data().status === "cancelled") {
-          // La sesión terminó, limpiar y mostrar formulario de nuevo
-          sessionStorage.removeItem("qs_live_session");
-          setStep(initialCode ? "checking" : "code");
-          return;
-        }
-        const sessionData = { id: doc.id, ...doc.data() };
-        // Verificar que este participantId sigue en la sala
-        if (!sessionData.participants?.[savedSession.participantId]) {
-          sessionStorage.removeItem("qs_live_session");
-          setStep(initialCode ? "checking" : "code");
-          return;
-        }
-        // Cargar quiz
-        const quizDoc = await window.QS.db.collection("quizzes").doc(sessionData.quizId).get();
-        if (!quizDoc.exists) {
-          sessionStorage.removeItem("qs_live_session");
-          setStep(initialCode ? "checking" : "code");
-          return;
-        }
-        if (cancelled) return;
-        setSession(sessionData);
-        setQuiz({ id: quizDoc.id, ...quizDoc.data() });
-        setStep("live");
-      } catch (err) {
-        console.error("Error reanudando sesión:", err);
-        sessionStorage.removeItem("qs_live_session");
-        setStep(initialCode ? "checking" : "code");
-      }
-    };
-    resume();
-    return () => { cancelled = true; };
-  }, [step]);
 
   // Si llega un código por URL, cargar la sesión automáticamente
   useEffectL(() => {
@@ -958,16 +816,6 @@ function StudentJoinLive({ initialCode, onCancel }) {
         if (quizDoc.exists) {
           const quizData = { id: quizDoc.id, ...quizDoc.data() };
           setQuiz(quizData);
-          // Guardar progreso en sessionStorage para poder reanudar si se desconecta
-          try {
-            sessionStorage.setItem("qs_live_session", JSON.stringify({
-              sessionId: session.id,
-              code: session.code || code,
-              participantId: pid,
-              name: name.trim(),
-              course: course.trim(),
-            }));
-          } catch (e) { /* sessionStorage puede no estar disponible */ }
           setStep("live");
         } else {
           console.error("Quiz no existe en Firestore. quizId:", session.quizId);
@@ -987,34 +835,7 @@ function StudentJoinLive({ initialCode, onCancel }) {
   };
 
   if (step === "live" && session && quiz && participantId) {
-    return <StudentLive sessionId={session.id} participantId={participantId} quizInitial={quiz} onExit={() => {
-      sessionStorage.removeItem("qs_live_session");
-      onCancel();
-    }}/>;
-  }
-
-  // Pantalla de reanudación
-  if (step === "resuming") {
-    return (
-      <div style={{
-        minHeight: "100vh", display: "grid", placeItems: "center",
-        background: "linear-gradient(135deg, var(--violet-600), var(--violet-900))", color: "white",
-      }}>
-        <div className="qs-card" style={{ padding: 32, textAlign: "center", maxWidth: 380 }}>
-          <div style={{ fontSize: 40, marginBottom: 12 }} className="qs-bob">🔄</div>
-          <h2 style={{ fontSize: 20, marginBottom: 8 }}>Retomando sesión...</h2>
-          <p style={{ color: "var(--ink-500)", fontSize: 14 }}>
-            Detectamos que ya estabas en una sala. Reconectando...
-          </p>
-          <button onClick={() => {
-            sessionStorage.removeItem("qs_live_session");
-            setStep(initialCode ? "checking" : "code");
-          }} className="qs-btn qs-btn--ghost qs-btn--sm" style={{ marginTop: 16 }}>
-            Entrar como nuevo participante
-          </button>
-        </div>
-      </div>
-    );
+    return <StudentLive sessionId={session.id} participantId={participantId} quizInitial={quiz} onExit={onCancel}/>;
   }
 
   return (
@@ -1174,15 +995,12 @@ function StudentLive({ sessionId, participantId, quizInitial, onExit }) {
     if (session?.status === "showResults" && session.currentQuestionIdx >= 0) {
       const qIdx = session.currentQuestionIdx;
       const docId = `${participantId}-${qIdx}`;
-      // Marcar como cargando ANTES de la consulta
-      setLastResult({ loading: true });
       window.QS.db.collection("liveSessions").doc(sessionId)
         .collection("answers").doc(docId).get()
         .then(doc => {
           if (doc.exists) setLastResult(doc.data());
           else setLastResult({ noAnswer: true });
-        })
-        .catch(() => setLastResult({ noAnswer: true }));
+        });
     } else {
       setLastResult(null);
     }
@@ -1344,23 +1162,13 @@ function StudentLive({ sessionId, participantId, quizInitial, onExit }) {
   // === Mostrando respuesta correcta ===
   if (session.status === "showResults") {
     const isLast = session.currentQuestionIdx >= quiz.questions.length - 1;
-
-    // Mostrar resultado correcto/incorrecto SOLO cuando el profe ya reveló
-    // (session.status === "showResults" significa que el profe ya reveló)
-    // La pantalla neutra se muestra mientras status es "playing" y ya respondió
     return (
       <div style={{
         minHeight: "100vh", display: "grid", placeItems: "center",
         background: "linear-gradient(135deg, var(--violet-600), var(--violet-900))", padding: 20,
       }}>
         <div className="qs-card" style={{ padding: 28, textAlign: "center", maxWidth: 420, width: "100%" }}>
-          {!lastResult || lastResult.loading ? (
-            // Aún cargando el resultado
-            <>
-              <div style={{ fontSize: 48, marginBottom: 8 }}>⏳</div>
-              <h2 style={{ fontSize: 22, marginBottom: 8 }}>Cargando resultado...</h2>
-            </>
-          ) : lastResult?.noAnswer ? (
+          {lastResult?.noAnswer ? (
             <>
               <div style={{ fontSize: 56, marginBottom: 8 }}>⏰</div>
               <h2 style={{ fontSize: 22, marginBottom: 8 }}>Se acabó el tiempo</h2>
@@ -1368,7 +1176,7 @@ function StudentLive({ sessionId, participantId, quizInitial, onExit }) {
             </>
           ) : lastResult?.correct ? (
             <>
-              <div style={{ fontSize: 64, marginBottom: 8 }} className="qs-pop-in">✅</div>
+              <div style={{ fontSize: 64, marginBottom: 8 }} className="qs-pop-in">🎉</div>
               <h2 style={{ fontSize: 26, color: "var(--emerald-600)", marginBottom: 8 }}>¡Correcto!</h2>
               <p style={{ color: "var(--ink-500)", marginBottom: 12 }}>+{lastResult.points} puntos</p>
             </>
@@ -1408,15 +1216,13 @@ function StudentLive({ sessionId, participantId, quizInitial, onExit }) {
           background: "linear-gradient(135deg, var(--violet-600), var(--violet-900))", padding: 20,
         }}>
           <div className="qs-card" style={{ padding: 32, textAlign: "center", maxWidth: 380 }}>
-            <div style={{ fontSize: 56, marginBottom: 12 }} className="qs-bob">📨</div>
+            <div style={{ fontSize: 56, marginBottom: 12 }} className="qs-bob">⏳</div>
             <h2 style={{ fontSize: 22, marginBottom: 8 }}>¡Respuesta enviada!</h2>
-            <p style={{ color: "var(--ink-500)", marginBottom: 20 }}>
-              Esperando a que el profesor muestre la respuesta...
-            </p>
+            <p style={{ color: "var(--ink-500)" }}>Esperando que terminen los demás...</p>
             <div style={{
-              marginTop: 8, padding: 14, background: "var(--violet-50)", borderRadius: 10,
+              marginTop: 20, padding: 14, background: "var(--violet-50)", borderRadius: 10,
             }}>
-              <p style={{ fontSize: 12, color: "var(--violet-700)", fontWeight: 600 }}>TU PUNTAJE ACTUAL</p>
+              <p style={{ fontSize: 12, color: "var(--violet-700)", fontWeight: 600 }}>TU PUNTAJE</p>
               <p style={{ fontSize: 24, fontFamily: "var(--font-display)", fontWeight: 800, color: "var(--violet-700)" }}>
                 {myScore} pts
               </p>
@@ -1430,7 +1236,7 @@ function StudentLive({ sessionId, participantId, quizInitial, onExit }) {
       <div style={{
         minHeight: "100vh",
         background: "linear-gradient(135deg, var(--violet-600), var(--violet-900))",
-        padding: "12px 10px 16px",
+        padding: 16, paddingBottom: 24,
       }}>
         <div style={{ maxWidth: 600, margin: "0 auto" }}>
           <div style={{
@@ -1454,10 +1260,9 @@ function StudentLive({ sessionId, participantId, quizInitial, onExit }) {
                 <button key={opt.id}
                   onClick={() => submitAnswer(opt.id)}
                   style={{
-                    padding: "16px 16px", borderRadius: 14, background: colors[i % 4],
-                    color: "white", fontSize: 16, fontWeight: 700, textAlign: "left",
+                    padding: "18px 20px", borderRadius: 14, background: colors[i % 4],
+                    color: "white", fontSize: 17, fontWeight: 700, textAlign: "left",
                     border: "none", cursor: "pointer", boxShadow: "var(--shadow-tile)",
-                    minHeight: 56, lineHeight: 1.3,
                   }}
                 >{opt.text}</button>
               ))}

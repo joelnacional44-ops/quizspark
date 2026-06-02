@@ -2,13 +2,9 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <!-- viewport corregido: evita zoom automático al tocar inputs en iOS/Android -->
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>QuizSpark — Plataforma de quizzes interactivos</title>
   <meta name="description" content="QuizSpark: plataforma educativa de quizzes interactivos para el aula." />
-
-  <!-- Evitar que iOS Safari cambie tamaños de fuente automáticamente -->
-  <meta name="format-detection" content="telephone=no" />
 
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -23,9 +19,6 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
-
-  <!-- SheetJS para Excel -->
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
   <div id="root"></div>
@@ -35,13 +28,24 @@
     </p>
   </noscript>
 
+  <!-- Configuración + auth -->
   <script src="00-firebase.js"></script>
   <script type="text/babel" data-presets="react" src="00b-auth.js"></script>
+
+  <!-- Núcleo -->
   <script type="text/babel" data-presets="react" src="01-core.js"></script>
   <script type="text/babel" data-presets="react" src="02-tweaks.js"></script>
+
+  <!-- Creator -->
   <script type="text/babel" data-presets="react" src="03-creator.js"></script>
+
+  <!-- Evaluación asincrónica online -->
   <script type="text/babel" data-presets="react" src="08-online.js"></script>
+
+  <!-- Sala en vivo -->
   <script type="text/babel" data-presets="react" src="09-live.js"></script>
+
+  <!-- App principal -->
   <script type="text/babel" data-presets="react" src="07-app.js"></script>
 </body>
 </html>
