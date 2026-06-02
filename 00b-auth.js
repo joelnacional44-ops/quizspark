@@ -9,7 +9,7 @@ const { useState: useStateAuth, useEffect: useEffectAuth } = React;
 function AuthLoading({ message = "Cargando..." }) {
   return (
     <div style={{
-      minHeight: "100vh", display: "grid", placeItems: "center",
+      minHeight: "100dvh", display: "grid", placeItems: "center",
       background: "linear-gradient(135deg, var(--violet-600), var(--violet-900))",
       color: "var(--white)", fontFamily: "var(--font-display)"
     }}>
@@ -26,7 +26,7 @@ function AuthLoading({ message = "Cargando..." }) {
 function AuthShell({ children }) {
   return (
     <div style={{
-      minHeight: "100vh",
+      minHeight: "100dvh",
       background: "linear-gradient(135deg, var(--violet-600), var(--violet-900))",
       display: "grid", placeItems: "center", padding: 20
     }}>
@@ -433,7 +433,7 @@ function AdminPanel({ onClose }) {
   };
 
   return (
-    <div style={{ minHeight: "100vh", background: "var(--ink-50)", padding: 24 }}>
+    <div style={{ minHeight: "100dvh", background: "var(--ink-50)", padding: 24 }}>
       <div style={{ maxWidth: 1100, margin: "0 auto" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
           <div>
