@@ -76,6 +76,27 @@ function convertToGrade(points, maxPoints, scale) {
   return +(ratio * 5).toFixed(2);
 }
 
+// ---- Persistencia de sesión del estudiante (reconexión tras recarga) ----
+// Guardamos por código de sala para que, si el estudiante recarga o cierra
+// la pestaña, vuelva a su sitio sin re-registrarse ni duplicarse.
+function liveStorageKey(code) {
+  return "qs_live_" + code;
+}
+function saveLiveSession(code, data) {
+  try { localStorage.setItem(liveStorageKey(code), JSON.stringify(data)); }
+  catch (e) { /* localStorage no disponible: seguimos sin persistencia */ }
+}
+function loadLiveSession(code) {
+  try {
+    const raw = localStorage.getItem(liveStorageKey(code));
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) { return null; }
+}
+function clearLiveSession(code) {
+  try { localStorage.removeItem(liveStorageKey(code)); }
+  catch (e) { /* no-op */ }
+}
+
 function checkAnswer(question, answer) {
   if (question.type === "multi" || question.type === "truefalse") {
     const correctOpt = (question.options || []).find(o => o.correct);
@@ -773,11 +794,49 @@ function StudentJoinLive({ initialCode, onCancel }) {
   const [participantId, setParticipantId] = useStateL(null);
   const [quiz, setQuiz] = useStateL(null);
 
-  // Si llega un código por URL, cargar la sesión automáticamente
+  // Intentar reconectar a una sala guardada (tras recarga / reapertura).
+  // Devuelve true si reconectó; false si no había nada válido que reconectar.
+  const tryReconnect = async (roomCode) => {
+    const saved = loadLiveSession(roomCode);
+    if (!saved || !saved.sessionId || !saved.participantId) return false;
+    try {
+      const doc = await window.QS.db.collection("liveSessions").doc(saved.sessionId).get();
+      if (!doc.exists) { clearLiveSession(roomCode); return false; }
+      const sessionData = { id: doc.id, ...doc.data() };
+      // La sala debe seguir viva y el participante debe seguir registrado
+      if (sessionData.status === "cancelled" || sessionData.status === "finished") {
+        clearLiveSession(roomCode);
+        return false;
+      }
+      if (!sessionData.participants || !sessionData.participants[saved.participantId]) {
+        clearLiveSession(roomCode);
+        return false;
+      }
+      // Cargar el quiz para entregárselo a StudentLive
+      const quizDoc = await window.QS.db.collection("quizzes").doc(sessionData.quizId).get();
+      if (!quizDoc.exists) { clearLiveSession(roomCode); return false; }
+      setSession(sessionData);
+      setParticipantId(saved.participantId);
+      setName(saved.name || "");
+      setCourse(saved.course || "");
+      setQuiz({ id: quizDoc.id, ...quizDoc.data() });
+      setStep("live");
+      return true;
+    } catch (e) {
+      console.error("Error reconectando:", e);
+      return false;
+    }
+  };
+
+  // Si llega un código por URL: primero intentar reconectar; si no, flujo normal
   useEffectL(() => {
     if (!initialCode) return;
     let cancelled = false;
     const autoLoad = async () => {
+      // 1) Intento de reconexión a sesión guardada
+      const reconnected = await tryReconnect(initialCode);
+      if (cancelled || reconnected) return;
+      // 2) Flujo normal: buscar sala en lobby para unirse por primera vez
       try {
         const snap = await window.QS.db.collection("liveSessions")
           .where("code", "==", initialCode).where("status", "==", "lobby").limit(1).get();
@@ -807,6 +866,9 @@ function StudentJoinLive({ initialCode, onCancel }) {
       return;
     }
     try {
+      // Si ya estuvo en esta sala, reconectar directo
+      const reconnected = await tryReconnect(code);
+      if (reconnected) return;
       const snap = await window.QS.db.collection("liveSessions")
         .where("code", "==", code).where("status", "==", "lobby").limit(1).get();
       if (snap.empty) {
@@ -850,6 +912,14 @@ function StudentJoinLive({ initialCode, onCancel }) {
         [updateKey]: participantData,
       });
       setParticipantId(pid);
+
+      // Guardar para reconexión tras recarga/cierre de pestaña
+      saveLiveSession(session.code, {
+        sessionId: session.id,
+        participantId: pid,
+        name: name.trim(),
+        course: course.trim(),
+      });
 
       // Cargar quiz con manejo tolerante
       try {
@@ -979,9 +1049,17 @@ function StudentLive({ sessionId, participantId, quizInitial, onExit }) {
   const [myAnswer, setMyAnswer] = useStateL(null);
   const [answeredAtIdx, setAnsweredAtIdx] = useStateL(-1);
   const [secondsLeft, setSecondsLeft] = useStateL(0);
-  const [lastResult, setLastResult] = useStateL(null);
+  const [myResultThisQ, setMyResultThisQ] = useStateL(null); // resultado local de la pregunta actual
   const [myAciertos, setMyAciertos] = useStateL(null);
   const myScore = (session?.participants?.[participantId]?.score) || 0;
+
+  // Cuando la sala termina o se cancela, borrar la sesión guardada para que
+  // una futura sala con el mismo código no intente reconectar a esta.
+  useEffectL(() => {
+    if (session?.status === "finished" || session?.status === "cancelled") {
+      if (session.code) clearLiveSession(session.code);
+    }
+  }, [session?.status]);
 
   // Al terminar la sala, contar mis aciertos para mostrarlos
   useEffectL(() => {
@@ -1012,6 +1090,7 @@ function StudentLive({ sessionId, participantId, quizInitial, onExit }) {
     if (!session) return;
     if (session.currentQuestionIdx !== answeredAtIdx) {
       setMyAnswer(null);
+      setMyResultThisQ(null);
     }
   }, [session?.currentQuestionIdx]);
 
@@ -1031,21 +1110,9 @@ function StudentLive({ sessionId, participantId, quizInitial, onExit }) {
     return () => clearInterval(id);
   }, [session?.questionStartedAt, session?.status, session?.extraSeconds]);
 
-  // Cargar mi último resultado cuando entramos a "showResults"
-  useEffectL(() => {
-    if (session?.status === "showResults" && session.currentQuestionIdx >= 0) {
-      const qIdx = session.currentQuestionIdx;
-      const docId = `${participantId}-${qIdx}`;
-      window.QS.db.collection("liveSessions").doc(sessionId)
-        .collection("answers").doc(docId).get()
-        .then(doc => {
-          if (doc.exists) setLastResult(doc.data());
-          else setLastResult({ noAnswer: true });
-        });
-    } else {
-      setLastResult(null);
-    }
-  }, [session?.status, session?.currentQuestionIdx]);
+  // El resultado del reveal se calcula directamente en el render desde
+  // myResultThisQ (guardado en memoria al responder). No usamos efecto ni
+  // relectura de Firestore para evitar parpadeos y problemas de timing.
 
   const submitAnswer = async (answer) => {
     if (!session || session.status !== "playing") return;
@@ -1060,18 +1127,27 @@ function StudentLive({ sessionId, participantId, quizInitial, onExit }) {
 
     setMyAnswer(answer);
     setAnsweredAtIdx(qIdx);
+    setMyResultThisQ({ correct: isCorrect, points });
 
     try {
-      // Guardar respuesta
+      // Si ya había respondido esta pregunta (p. ej. respondió, recargó y
+      // volvió a responder), no sumamos el puntaje otra vez.
       const docId = `${participantId}-${qIdx}`;
-      await window.QS.db.collection("liveSessions").doc(sessionId)
-        .collection("answers").doc(docId).set({
-          participantId, questionIdx: qIdx, answer,
-          correct: isCorrect, points,
-          secondsTaken, answeredAt: Date.now(),
-        });
-      // Actualizar puntaje del participante (permite valores negativos para penalizar)
-      if (points !== 0) {
+      const answerRef = window.QS.db.collection("liveSessions").doc(sessionId)
+        .collection("answers").doc(docId);
+      const existing = await answerRef.get();
+      const alreadyScored = existing.exists;
+
+      // Guardar (o sobrescribir) la respuesta
+      await answerRef.set({
+        participantId, questionIdx: qIdx, answer,
+        correct: isCorrect, points,
+        secondsTaken, answeredAt: Date.now(),
+      });
+
+      // Actualizar puntaje solo la primera vez que responde esta pregunta
+      // (permite valores negativos para penalizar)
+      if (!alreadyScored && points !== 0) {
         const scoreKey = `participants.${participantId}.score`;
         await window.QS.db.collection("liveSessions").doc(sessionId).update({
           [scoreKey]: firebase.firestore.FieldValue.increment(points),
@@ -1200,26 +1276,29 @@ function StudentLive({ sessionId, participantId, quizInitial, onExit }) {
   const currentQ = quiz.questions[session.currentQuestionIdx];
   if (!currentQ) return null;
 
-  // === Mostrando respuesta correcta ===
+  // === Mostrando respuesta correcta (el docente reveló) ===
   if (session.status === "showResults") {
     const isLast = session.currentQuestionIdx >= quiz.questions.length - 1;
+    // Resultado tomado directamente de memoria: respondió esta pregunta o no.
+    const answeredThis = answeredAtIdx === session.currentQuestionIdx && myResultThisQ;
+    const reveal = answeredThis ? myResultThisQ : { noAnswer: true };
     return (
       <div style={{
         minHeight: "100vh", display: "grid", placeItems: "center",
         background: "linear-gradient(135deg, var(--violet-600), var(--violet-900))", padding: 20,
       }}>
         <div className="qs-card" style={{ padding: 28, textAlign: "center", maxWidth: 420, width: "100%" }}>
-          {lastResult?.noAnswer ? (
+          {reveal.noAnswer ? (
             <>
               <div style={{ fontSize: 56, marginBottom: 8 }}>⏰</div>
               <h2 style={{ fontSize: 22, marginBottom: 8 }}>Se acabó el tiempo</h2>
               <p style={{ color: "var(--ink-500)", marginBottom: 16 }}>No alcanzaste a responder</p>
             </>
-          ) : lastResult?.correct ? (
+          ) : reveal.correct ? (
             <>
               <div style={{ fontSize: 64, marginBottom: 8 }} className="qs-pop-in">🎉</div>
               <h2 style={{ fontSize: 26, color: "var(--emerald-600)", marginBottom: 8 }}>¡Correcto!</h2>
-              <p style={{ color: "var(--ink-500)", marginBottom: 12 }}>+{lastResult.points} puntos</p>
+              <p style={{ color: "var(--ink-500)", marginBottom: 12 }}>+{reveal.points} puntos</p>
             </>
           ) : (
             <>
