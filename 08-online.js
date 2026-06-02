@@ -438,7 +438,7 @@ function StudentExam({ examCode }) {
   if (phase === "loading") {
     return (
       <div style={{
-        minHeight: "100vh", display: "grid", placeItems: "center",
+        minHeight: "100dvh", display: "grid", placeItems: "center",
         background: "linear-gradient(135deg, var(--violet-600), var(--violet-900))", color: "white",
       }}>
         <div style={{ textAlign: "center" }}>
@@ -452,7 +452,7 @@ function StudentExam({ examCode }) {
   if (phase === "error") {
     return (
       <div style={{
-        minHeight: "100vh", display: "grid", placeItems: "center",
+        minHeight: "100dvh", display: "grid", placeItems: "center",
         background: "linear-gradient(135deg, var(--violet-600), var(--violet-900))", padding: 20,
       }}>
         <div className="qs-card" style={{ padding: 32, maxWidth: 440, textAlign: "center" }}>
@@ -470,7 +470,7 @@ function StudentExam({ examCode }) {
   if (phase === "identify") {
     return (
       <div style={{
-        minHeight: "100vh",
+        minHeight: "100dvh",
         background: "linear-gradient(135deg, var(--violet-600), var(--violet-900))",
         display: "grid", placeItems: "center", padding: 20,
       }}>
@@ -534,7 +534,7 @@ function StudentExam({ examCode }) {
   if (phase === "submitting") {
     return (
       <div style={{
-        minHeight: "100vh", display: "grid", placeItems: "center",
+        minHeight: "100dvh", display: "grid", placeItems: "center",
         background: "linear-gradient(135deg, var(--violet-600), var(--violet-900))", color: "white",
       }}>
         <div style={{ textAlign: "center" }}>
@@ -549,7 +549,7 @@ function StudentExam({ examCode }) {
     const passing = result.score >= 3.0;
     return (
       <div style={{
-        minHeight: "100vh",
+        minHeight: "100dvh",
         background: "linear-gradient(135deg, var(--violet-600), var(--violet-900))",
         display: "grid", placeItems: "center", padding: 20,
       }}>
@@ -615,7 +615,7 @@ function StudentExam({ examCode }) {
 
   return (
     <div style={{
-      minHeight: "100vh",
+      minHeight: "100dvh",
       background: "linear-gradient(135deg, var(--violet-600), var(--violet-900))",
       padding: "12px 10px 80px",
     }}>
@@ -753,30 +753,50 @@ function StudentExam({ examCode }) {
         position: "fixed", bottom: 0, left: 0, right: 0,
         padding: "12px 16px",
         background: "linear-gradient(to top, rgba(76,29,149,0.98) 80%, transparent)",
-        display: "flex", gap: 10, zIndex: 50,
+        display: "flex", flexDirection: "column", gap: 8, zIndex: 50,
       }}>
-        <button
-          onClick={handlePrev}
-          disabled={currentIdx === 0}
-          className="qs-btn qs-btn--lg"
-          style={{
-            flex: 1, background: "rgba(255,255,255,0.2)", color: "white",
-            opacity: currentIdx === 0 ? 0.4 : 1,
-            border: "1px solid rgba(255,255,255,0.3)",
-          }}
-        >← Anterior</button>
-        <button
-          onClick={handleNext}
-          disabled={!isAnswered}
-          className="qs-btn qs-btn--lg"
-          style={{
-            flex: 2, background: isAnswered ? "var(--white)" : "rgba(255,255,255,0.3)",
-            color: isAnswered ? "var(--violet-700)" : "rgba(255,255,255,0.6)",
-            fontWeight: 700,
-          }}
-        >
-          {currentIdx < totalQ - 1 ? "Siguiente →" : "Enviar evaluación ✓"}
-        </button>
+        {/* Botón de finalizar anticipado — visible si ya respondió al menos 1 pero no todas */}
+        {Object.keys(answers).length > 0 && currentIdx < totalQ - 1 && (
+          <button
+            onClick={() => {
+              if (confirm(`¿Enviar el quiz con ${Object.keys(answers).length} de ${totalQ} preguntas respondidas? Las preguntas sin responder quedarán en blanco.`)) {
+                handleSubmit();
+              }
+            }}
+            className="qs-btn"
+            style={{
+              width: "100%", background: "rgba(255,255,255,0.15)",
+              color: "rgba(255,255,255,0.85)", fontSize: 13,
+              border: "1px solid rgba(255,255,255,0.25)",
+            }}
+          >
+            ⏹ Finalizar con {Object.keys(answers).length}/{totalQ} respondidas
+          </button>
+        )}
+        <div style={{ display: "flex", gap: 10 }}>
+          <button
+            onClick={handlePrev}
+            disabled={currentIdx === 0}
+            className="qs-btn qs-btn--lg"
+            style={{
+              flex: 1, background: "rgba(255,255,255,0.2)", color: "white",
+              opacity: currentIdx === 0 ? 0.4 : 1,
+              border: "1px solid rgba(255,255,255,0.3)",
+            }}
+          >← Anterior</button>
+          <button
+            onClick={handleNext}
+            disabled={!isAnswered}
+            className="qs-btn qs-btn--lg"
+            style={{
+              flex: 2, background: isAnswered ? "var(--white)" : "rgba(255,255,255,0.3)",
+              color: isAnswered ? "var(--violet-700)" : "rgba(255,255,255,0.6)",
+              fontWeight: 700,
+            }}
+          >
+            {currentIdx < totalQ - 1 ? "Siguiente →" : "Enviar evaluación ✓"}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -792,28 +812,43 @@ function OnlineResultsPanel({ onBack }) {
   const [selectedQuizId, setSelectedQuizId] = useStateO(null);
   const [submissions, setSubmissions] = useStateO([]);
   const [loading, setLoading] = useStateO(true);
+  const [loadError, setLoadError] = useStateO(null);
+  const [retryCount, setRetryCount] = useStateO(0);
   const [filterCourse, setFilterCourse] = useStateO("");
   const [filterDate, setFilterDate] = useStateO("");
-  const [viewMode, setViewMode] = useStateO("tabla"); // "tabla" | "respuestas"
+  const [viewMode, setViewMode] = useStateO("tabla");
   const [expandedRow, setExpandedRow] = useStateO(null);
 
   // Cargar quizzes propios al montar
   useEffectO(() => {
     const load = async () => {
+      setLoadError(null);
       try {
         const uid = window.QS.currentUser?.uid;
+        if (!uid) {
+          // Esperar un momento y reintentar (puede que Firebase aún no cargó)
+          await new Promise(r => setTimeout(r, 1500));
+          const uid2 = window.QS.currentUser?.uid;
+          if (!uid2) {
+            setLoadError("No se pudo verificar tu sesión. Intenta volver y entrar de nuevo.");
+            setLoading(false);
+            return;
+          }
+        }
+        const finalUid = window.QS.currentUser?.uid;
         const snap = await window.QS.db.collection("quizzes")
-          .where("ownerId", "==", uid).get();
+          .where("ownerId", "==", finalUid).get();
         const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         setQuizzes(list);
         if (list.length > 0) setSelectedQuizId(list[0].id);
       } catch (err) {
-        console.error(err);
+        console.error("Error cargando quizzes:", err);
+        setLoadError("Error al cargar: " + err.message);
       }
       setLoading(false);
     };
     load();
-  }, []);
+  }, [retryCount]);
 
   // Cargar submissions cuando cambia quiz seleccionado
   useEffectO(() => {
@@ -826,7 +861,7 @@ function OnlineResultsPanel({ onBack }) {
         list.sort((a, b) => (b.submittedAt || 0) - (a.submittedAt || 0));
         setSubmissions(list);
       } catch (err) {
-        console.error(err);
+        console.error("Error cargando resultados:", err);
       }
     };
     load();
@@ -1024,7 +1059,25 @@ function OnlineResultsPanel({ onBack }) {
   if (loading) {
     return (
       <div style={{ padding: 40, textAlign: "center", color: "var(--ink-500)" }}>
-        Cargando...
+        <div style={{ fontSize: 32, marginBottom: 12 }}>⏳</div>
+        Cargando resultados...
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div style={{ padding: 40, textAlign: "center", maxWidth: 500, margin: "0 auto" }}>
+        <div style={{ fontSize: 40, marginBottom: 12 }}>⚠️</div>
+        <h2 style={{ fontSize: 20, marginBottom: 8 }}>No se pudo cargar</h2>
+        <p style={{ color: "var(--ink-500)", marginBottom: 20 }}>{loadError}</p>
+        <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
+          <button onClick={() => { setLoadError(null); setLoading(true); setRetryCount(r => r + 1); }}
+            className="qs-btn qs-btn--primary">
+            🔄 Reintentar
+          </button>
+          <button onClick={onBack} className="qs-btn qs-btn--ghost">← Volver</button>
+        </div>
       </div>
     );
   }
