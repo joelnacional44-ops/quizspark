@@ -818,6 +818,7 @@ function OnlineResultsPanel({ onBack }) {
   const [filterDate, setFilterDate] = useStateO("");
   const [viewMode, setViewMode] = useStateO("tabla");
   const [expandedRow, setExpandedRow] = useStateO(null);
+  const [showDuplicates, setShowDuplicates] = useStateO(false);
 
   // Cargar quizzes propios al montar
   useEffectO(() => {
@@ -868,7 +869,6 @@ function OnlineResultsPanel({ onBack }) {
   }, [selectedQuizId]);
 
   const selectedQuiz = quizzes.find(q => q.id === selectedQuizId);
-  const [showDuplicates, setShowDuplicates] = useStateO(false);
 
   // Filtros
   const filtered = submissions.filter(s => {
