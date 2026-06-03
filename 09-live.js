@@ -568,6 +568,37 @@ function HostReveal({ session, quiz, currentQ, answersThisQ, onNext }) {
     );
   }
 
+  // ===== Respuesta abierta (text): listar lo que escribieron =====
+  if (currentQ.type === "text") {
+    const answers = Object.values(answersThisQ || {})
+      .map(a => ({ text: (a.answer == null ? "" : String(a.answer)).trim(), correct: a.correct }))
+      .filter(a => a.text);
+    return shell(
+      <div className="qs-card" style={{ padding: 28, marginBottom: 20, color: "var(--ink-900)", maxHeight: "55vh", overflowY: "auto" }}>
+        {answers.length === 0 ? (
+          <p style={{ textAlign: "center", color: "var(--ink-500)" }}>Aún no hay respuestas.</p>
+        ) : (
+          <div style={{ display: "grid", gap: 8 }}>
+            {answers.map((a, i) => (
+              <div key={i} style={{
+                padding: "10px 14px", borderRadius: 10, background: "var(--ink-50)",
+                borderLeft: `4px solid ${a.correct ? "var(--emerald-500)" : "var(--ink-300)"}`,
+                fontSize: 15,
+              }}>
+                {a.text}
+              </div>
+            ))}
+          </div>
+        )}
+        {!isSurvey && (
+          <p style={{ fontSize: 12, color: "var(--ink-500)", marginTop: 12, textAlign: "center" }}>
+            ℹ️ Puedes ajustar la calificación de estas respuestas después, desde el panel de Resultados.
+          </p>
+        )}
+      </div>
+    );
+  }
+
   // ===== Opciones (poll / multi / truefalse / checks) =====
   return shell(
     <div className="qs-card" style={{ padding: 28, marginBottom: 20, color: "var(--ink-900)" }}>
@@ -1021,6 +1052,8 @@ function LiveSessionHost({ quizId, onExit }) {
       // Reconstruir gradeDetail compatible con el formato asincrónico
       const gradeDetail = quiz.questions.map((q, qIdx) => {
         const ans = myAnswers.find(a => a.questionIdx === qIdx);
+        const accepted = (q.acceptedAnswers || []).map(a => String(a).toLowerCase().trim()).filter(Boolean);
+        const needsReview = q.type === "text" && accepted.length === 0;
         return {
           qid: q.id,
           type: q.type,
@@ -1028,6 +1061,8 @@ function LiveSessionHost({ quizId, onExit }) {
           correct: ans?.correct ?? false,
           points: ans?.points ?? 0,
           pointsMax: (q.pointsCorrect ?? 100) + (q.pointsSpeedBonus ?? 0),
+          needsReview,
+          reviewed: false,
         };
       });
 
