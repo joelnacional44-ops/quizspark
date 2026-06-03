@@ -416,33 +416,42 @@ function Editor({ quizId, onBack, onLaunch }) {
       const uid = window.QS.currentUser?.uid;
       if (!uid) throw new Error("No hay sesión activa");
       const data = { ...quiz, ownerId: uid, updatedAt: Date.now() };
+      let savedId = quiz.id;
       if (String(quiz.id).startsWith("new-") || !quiz.id) {
         const docRef = await window.QS.db.collection("quizzes").add(data);
+        savedId = docRef.id;
         setQuiz(q => ({ ...q, id: docRef.id }));
       } else {
         await window.QS.db.collection("quizzes").doc(quiz.id).set(data, { merge: true });
       }
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus(""), 2500);
-      return true;
+      return savedId; // devuelve el id real (o null si falló)
     } catch (err) {
       console.error("Error guardando:", err);
       setSaveStatus("error");
       alert("Error al guardar: " + err.message);
-      return false;
+      return null;
     } finally {
       setSaving(false);
     }
   };
 
+  // Lanzar sala en vivo: SIEMPRE guarda primero y usa el id real devuelto,
+  // para no crear una sala apuntando a un quiz "new-..." inexistente.
+  const handleLaunchClick = async () => {
+    const savedId = await handleSave();
+    if (!savedId || String(savedId).startsWith("new-")) {
+      alert("No se pudo guardar el quiz. Inténtalo de nuevo antes de iniciar la sala.");
+      return;
+    }
+    onLaunch(savedId);
+  };
+
   const handlePublishClick = async () => {
     // Asegurar que esté guardado antes de publicar
-    if (String(quiz.id).startsWith("new-")) {
-      const ok = await handleSave();
-      if (!ok) return;
-    } else {
-      await handleSave();
-    }
+    const savedId = await handleSave();
+    if (!savedId) return; // null = falló el guardado
     setShowPublish(true);
   };
 
@@ -481,7 +490,7 @@ function Editor({ quizId, onBack, onLaunch }) {
     ]};
     else if (type === "scale") q = { ...base, type, scaleLabels: [...SCALE_LABELS] };
     else if (type === "wordcloud") q = { ...base, type };
-    else q = { ...base, type: "text", acceptedAnswers: [] };
+    else q = { ...base, type: "text", acceptedAnswers: [], gradeMode: "live" };
     setQuiz(qz => ({ ...qz, questions: [...qz.questions, q] }));
     setActiveIdx(quiz.questions.length);
   };
@@ -535,7 +544,7 @@ function Editor({ quizId, onBack, onLaunch }) {
           <button onClick={handleSave} disabled={saving} className="qs-btn qs-btn--primary qs-btn--sm">
             {saving ? "Guardando..." : "💾 Guardar"}
           </button>
-          <button className="qs-btn qs-btn--success" onClick={() => onLaunch(quiz.id)}>
+          <button className="qs-btn qs-btn--success" onClick={handleLaunchClick}>
             🎮 Sala en vivo
           </button>
         </div>
@@ -741,14 +750,41 @@ function Editor({ quizId, onBack, onLaunch }) {
               </div>
             ) : active.type === "text" ? (
               <div>
+                {/* Modo de calificación de la respuesta abierta (solo modo quiz) */}
+                {quiz.mode !== "survey" && (
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ink-700)", marginBottom: 8 }}>
+                      ¿Cómo calificar esta respuesta abierta?
+                    </div>
+                    <div style={{ display: "grid", gap: 8 }}>
+                      {[
+                        { id: "live", title: "✍️ Calificar en vivo", desc: "En la sala en vivo, marcas correcto/parcial/incorrecto a cada estudiante antes de pasar a la siguiente pregunta." },
+                        { id: "end",  title: "📋 Solo recoger respuestas", desc: "No se asigna nota automáticamente; solo verás las respuestas (en la sala y en Resultados)." },
+                      ].map(opt => {
+                        const on = (active.gradeMode || "live") === opt.id;
+                        return (
+                          <button key={opt.id} onClick={() => updateQuestion({ gradeMode: opt.id })}
+                            style={{
+                              textAlign: "left", padding: "10px 14px", borderRadius: 12,
+                              border: on ? "2px solid var(--violet-500)" : "1px solid var(--ink-200)",
+                              background: on ? "var(--violet-50)" : "var(--white)", cursor: "pointer",
+                            }}>
+                            <div style={{ fontWeight: 700, fontSize: 14, color: on ? "var(--violet-700)" : "var(--ink-900)" }}>{opt.title}</div>
+                            <div style={{ fontSize: 12, color: "var(--ink-500)", marginTop: 2 }}>{opt.desc}</div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
                 <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ink-700)", marginBottom: 8 }}>
-                  Respuestas aceptadas (separadas por coma)
+                  Respuestas aceptadas (opcional, separadas por coma)
                 </div>
                 <input className="qs-input" placeholder="ej: colón, colones"
                   value={(active.acceptedAnswers || []).join(", ")}
                   onChange={e => updateQuestion({ acceptedAnswers: e.target.value.split(",").map(s => s.trim()) })}/>
                 <div style={{ marginTop: 8, fontSize: 12, color: "var(--ink-500)" }}>
-                  Las respuestas se comparan ignorando mayúsculas y acentos.
+                  Si pones respuestas aceptadas, se comparan automáticamente (ignorando mayúsculas y acentos). Déjalo vacío para calificar a mano.
                 </div>
               </div>
             ) : (

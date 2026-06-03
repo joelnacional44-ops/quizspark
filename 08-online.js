@@ -40,7 +40,6 @@ function gradeSubmission(quiz, answers) {
     total++;
     const userAnswer = answers[q.id];
     let isCorrect = false;
-    let needsReview = false;
 
     if (q.type === "multi" || q.type === "truefalse") {
       const correctOpt = (q.options || []).find(o => o.correct);
@@ -51,13 +50,12 @@ function gradeSubmission(quiz, answers) {
       isCorrect = JSON.stringify(correctIds) === JSON.stringify(userIds);
     } else if (q.type === "text") {
       const accepted = (q.acceptedAnswers || []).map(a => a.toLowerCase().trim()).filter(Boolean);
-      if (accepted.length === 0) {
-        // Sin respuestas aceptadas => revisión manual del docente
-        needsReview = true;
-      } else {
+      if (accepted.length > 0) {
         const user = (userAnswer || "").toLowerCase().trim();
         isCorrect = accepted.includes(user);
       }
+      // Si no hay respuestas aceptadas, queda sin calificar (0). El docente
+      // las revisa manualmente solo en modo "calificar en vivo" (sala en vivo).
     }
 
     // Puntos personalizados (con defaults para quizzes viejos)
@@ -66,8 +64,7 @@ function gradeSubmission(quiz, answers) {
     const pBonus = q.pointsSpeedBonus ?? 0;
 
     // En modo asincrónico no aplicamos bonus de velocidad
-    // Las preguntas en revisión manual empiezan en 0 puntos hasta que el docente las califique
-    const pointsForThisQuestion = needsReview ? 0 : (isCorrect ? pCorrect : (userAnswer != null ? pWrong : 0));
+    const pointsForThisQuestion = isCorrect ? pCorrect : (userAnswer != null ? pWrong : 0);
     const maxForThisQuestion = pCorrect + pBonus; // máximo posible incluyendo bonus
 
     pointsEarned += pointsForThisQuestion;
@@ -77,7 +74,6 @@ function gradeSubmission(quiz, answers) {
     detail.push({
       qid: q.id, type: q.type, userAnswer, correct: isCorrect,
       points: pointsForThisQuestion, pointsMax: maxForThisQuestion,
-      needsReview, reviewed: false,
     });
   }
 
@@ -592,15 +588,6 @@ function StudentExam({ examCode }) {
             </div>
           </div>
 
-          {(result.detail || []).some(d => d.needsReview) && (
-            <div style={{
-              background: "#fef3c7", color: "#92400e", padding: 14, borderRadius: 12,
-              marginBottom: 12, fontSize: 13, lineHeight: 1.5,
-            }}>
-              ⏳ Tu evaluación incluye preguntas abiertas que el profesor revisará manualmente. Tu nota puede cambiar una vez calificadas.
-            </div>
-          )}
-
           {/* Nota convertida */}
           <div style={{
             background: passing ? "#d1fae5" : "#fef3c7",
@@ -866,36 +853,6 @@ function OnlineResultsPanel({ onBack }) {
     }
   };
 
-  // Calificar manualmente una respuesta abierta: fija los puntos de esa
-  // pregunta en el gradeDetail, recalcula la nota total y guarda en Firestore.
-  const gradeOpenAnswer = async (submission, qid, awardedPoints) => {
-    const detail = (submission.gradeDetail || []).map(d => {
-      if (d.qid !== qid) return d;
-      const pts = Math.max(0, Math.min(awardedPoints, d.pointsMax || 0));
-      return { ...d, points: pts, reviewed: true, correct: pts > 0 };
-    });
-    // Recalcular puntos totales y nota
-    const pointsEarned = detail.reduce((s, d) => s + (d.points || 0), 0);
-    const pointsMax = detail.reduce((s, d) => s + (d.pointsMax || 0), 0);
-    const correct = detail.filter(d => d.correct).length;
-    const grade = convertPointsToGrade(pointsEarned, pointsMax, selectedQuiz?.gradingScale);
-    const percent = pointsMax > 0 ? Math.round((pointsEarned / pointsMax) * 100) : 0;
-
-    const patch = {
-      gradeDetail: detail,
-      pointsEarned, pointsMax,
-      correct, score: grade, percent,
-    };
-    // Actualizar en memoria de inmediato (UI responsiva)
-    setSubmissions(subs => subs.map(s => s.id === submission.id ? { ...s, ...patch } : s));
-    try {
-      await window.QS.db.collection("results").doc(submission.id).update(patch);
-    } catch (err) {
-      console.error("Error guardando calificación:", err);
-      alert("No se pudo guardar la calificación: " + err.message);
-    }
-  };
-
   const downloadExcel = () => {
     if (!selectedQuiz || filtered.length === 0) {
       alert("No hay registros para descargar.");
@@ -1083,7 +1040,6 @@ function OnlineResultsPanel({ onBack }) {
                           <th style={{ padding: 12, fontSize: 12 }}>Curso</th>
                           <th style={{ padding: 12, fontSize: 12 }}>Fecha</th>
                           <th style={{ padding: 12, fontSize: 12 }}>Nota</th>
-                          <th style={{ padding: 12, fontSize: 12 }}>Estado</th>
                           <th style={{ padding: 12, fontSize: 12 }}>Aciertos</th>
                           <th style={{ padding: 12, fontSize: 12 }}>Puntos</th>
                           <th style={{ padding: 12, fontSize: 12 }}>Tiempo</th>
@@ -1093,11 +1049,10 @@ function OnlineResultsPanel({ onBack }) {
                       </thead>
                       <tbody>
                         {filtered.map(s => {
-                          const pending = (s.gradeDetail || []).filter(d => d.needsReview && !d.reviewed).length;
                           return (
                           <tr key={s.id} onClick={() => setReviewing(s)}
                             style={{ borderTop: "1px solid var(--ink-100)", cursor: "pointer" }}
-                            title="Clic para ver respuestas y calificar">
+                            title="Clic para ver respuestas">
                             <td style={{ padding: 12, fontWeight: 600 }}>{s.studentName}</td>
                             <td style={{ padding: 12 }}>{s.studentCourse}</td>
                             <td style={{ padding: 12 }}>{s.examDate}</td>
@@ -1107,16 +1062,6 @@ function OnlineResultsPanel({ onBack }) {
                                 background: s.score >= 3 ? "#d1fae5" : "#fee2e2",
                                 color: s.score >= 3 ? "#065f46" : "#991b1b",
                               }}>{(s.score || 0).toFixed(1)}</span>
-                            </td>
-                            <td style={{ padding: 12 }}>
-                              {pending > 0 ? (
-                                <span style={{
-                                  fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 6,
-                                  background: "#fef3c7", color: "#92400e", whiteSpace: "nowrap",
-                                }}>⏳ {pending} por revisar</span>
-                              ) : (
-                                <span style={{ fontSize: 12, color: "var(--emerald-600)", fontWeight: 600 }}>✓ Calificado</span>
-                              )}
                             </td>
                             <td style={{ padding: 12 }}>{s.correct}/{s.total}</td>
                             <td style={{ padding: 12, color: "var(--violet-700)", fontWeight: 600 }}>
@@ -1154,7 +1099,6 @@ function OnlineResultsPanel({ onBack }) {
         <ReviewModal
           submission={reviewing}
           quiz={selectedQuiz}
-          onGrade={gradeOpenAnswer}
           onClose={() => setReviewing(null)}
         />
       )}
@@ -1162,8 +1106,8 @@ function OnlineResultsPanel({ onBack }) {
   );
 }
 
-// =================== REVIEW MODAL — calificar respuestas abiertas ===================
-function ReviewModal({ submission, quiz, onGrade, onClose }) {
+// =================== REVIEW MODAL — ver respuestas (solo lectura) ===================
+function ReviewModal({ submission, quiz, onClose }) {
   const questions = quiz?.questions || [];
   return (
     <div onClick={onClose} style={{
@@ -1181,7 +1125,7 @@ function ReviewModal({ submission, quiz, onGrade, onClose }) {
             </p>
           </div>
           <div style={{ textAlign: "right" }}>
-            <div style={{ fontSize: 12, color: "var(--ink-500)" }}>Nota actual</div>
+            <div style={{ fontSize: 12, color: "var(--ink-500)" }}>Nota</div>
             <div style={{
               fontSize: 24, fontWeight: 800, fontFamily: "var(--font-display)",
               color: (submission.score || 0) >= 3 ? "var(--emerald-600)" : "var(--red-500)",
@@ -1193,7 +1137,7 @@ function ReviewModal({ submission, quiz, onGrade, onClose }) {
           {questions.map((q, i) => {
             const det = (submission.gradeDetail || []).find(d => d.qid === q.id) || {};
             const userAnswer = det.userAnswer;
-            const isOpen = q.type === "text" && det.needsReview;
+            const isOpen = q.type === "text";
 
             // Render legible de la respuesta del estudiante
             let answerText = "—";
@@ -1213,33 +1157,21 @@ function ReviewModal({ submission, quiz, onGrade, onClose }) {
                 background: isOpen ? "var(--violet-50)" : "var(--white)",
               }}>
                 <div style={{ fontSize: 12, color: "var(--ink-500)", marginBottom: 4 }}>
-                  Pregunta {i + 1} · {q.type === "text" ? "Respuesta abierta" : q.type}
+                  Pregunta {i + 1} · {isOpen ? "Respuesta abierta" : q.type}
                 </div>
                 <div style={{ fontWeight: 700, marginBottom: 8 }}>{q.text || "(sin enunciado)"}</div>
                 <div style={{
                   padding: 10, borderRadius: 8, background: "var(--ink-50)",
-                  fontSize: 14, marginBottom: isOpen ? 12 : 0,
+                  fontSize: 14,
                   fontStyle: answerText === "—" ? "italic" : "normal",
                   color: answerText === "—" ? "var(--ink-400)" : "var(--ink-900)",
                 }}>
                   {answerText === "—" ? "Sin respuesta" : answerText}
                 </div>
-
-                {isOpen ? (
-                  <OpenGrader
-                    max={det.pointsMax || (q.pointsCorrect ?? 100)}
-                    current={det.points || 0}
-                    reviewed={det.reviewed}
-                    onSet={(pts) => onGrade(submission, q.id, pts)}
-                  />
-                ) : q.type !== "text" ? (
+                {!isOpen && (
                   <div style={{ marginTop: 8, fontSize: 13, fontWeight: 600,
                     color: det.correct ? "var(--emerald-600)" : "var(--red-500)" }}>
                     {det.correct ? "✓ Correcta" : "✗ Incorrecta"} · {det.points || 0}/{det.pointsMax || 0} pts
-                  </div>
-                ) : (
-                  <div style={{ marginTop: 8, fontSize: 13, color: "var(--ink-500)" }}>
-                    Autocalificada: {det.correct ? "✓ Correcta" : "✗ Incorrecta"} · {det.points || 0}/{det.pointsMax || 0} pts
                   </div>
                 )}
               </div>
@@ -1251,29 +1183,6 @@ function ReviewModal({ submission, quiz, onGrade, onClose }) {
           Cerrar
         </button>
       </div>
-    </div>
-  );
-}
-
-// Control para puntuar una respuesta abierta
-function OpenGrader({ max, current, reviewed, onSet }) {
-  const [val, setVal] = useStateO(current);
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-      <span style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-700)" }}>Puntos:</span>
-      <input type="number" min={0} max={max} value={val}
-        onChange={e => setVal(Math.max(0, Math.min(+e.target.value, max)))}
-        style={{
-          width: 80, padding: "6px 10px", borderRadius: 8,
-          border: "1px solid var(--ink-200)", fontWeight: 700, textAlign: "center",
-        }}/>
-      <span style={{ fontSize: 13, color: "var(--ink-500)" }}>/ {max}</span>
-      {/* Atajos rápidos */}
-      <button onClick={() => { setVal(0); onSet(0); }} className="qs-btn qs-btn--ghost qs-btn--sm">0</button>
-      <button onClick={() => { setVal(Math.round(max / 2)); onSet(Math.round(max / 2)); }} className="qs-btn qs-btn--ghost qs-btn--sm">½</button>
-      <button onClick={() => { setVal(max); onSet(max); }} className="qs-btn qs-btn--ghost qs-btn--sm">Máx</button>
-      <button onClick={() => onSet(val)} className="qs-btn qs-btn--success qs-btn--sm">Guardar</button>
-      {reviewed && <span style={{ fontSize: 12, color: "var(--emerald-600)", fontWeight: 600 }}>✓ Calificada</span>}
     </div>
   );
 }

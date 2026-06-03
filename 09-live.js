@@ -435,7 +435,7 @@ function HostQuestion({ session, quiz, currentQ, answersThisQ, totalParticipants
 // ============================================================
 // HOST REVEAL — muestra la gráfica y la respuesta correcta
 // ============================================================
-function HostReveal({ session, quiz, currentQ, answersThisQ, onNext }) {
+function HostReveal({ session, quiz, currentQ, answersThisQ, onNext, onGradeLive }) {
   const totalAnswers = Object.keys(answersThisQ || {}).length;
   const isSurvey = quiz.mode === "survey";
   const isLast = session.currentQuestionIdx >= quiz.questions.length - 1;
@@ -568,32 +568,91 @@ function HostReveal({ session, quiz, currentQ, answersThisQ, onNext }) {
     );
   }
 
-  // ===== Respuesta abierta (text): listar lo que escribieron =====
+  // ===== Respuesta abierta (text) =====
   if (currentQ.type === "text") {
-    const answers = Object.values(answersThisQ || {})
-      .map(a => ({ text: (a.answer == null ? "" : String(a.answer)).trim(), correct: a.correct }))
-      .filter(a => a.text);
+    const liveGrading = !isSurvey && (currentQ.gradeMode || "live") === "live";
+    // Lista de respuestas con datos del participante
+    const entries = Object.entries(answersThisQ || {}).map(([pid, a]) => ({
+      pid,
+      text: (a.answer == null ? "" : String(a.answer)).trim(),
+      graded: a.graded || false,
+      gradeResult: a.gradeResult || null, // "correct" | "partial" | "wrong"
+      name: session.participants?.[pid]?.name || "Estudiante",
+    })).filter(e => e.text);
+
+    if (liveGrading) {
+      const pending = entries.filter(e => !e.graded).length;
+      return shell(
+        <div className="qs-card" style={{ padding: 24, marginBottom: 20, color: "var(--ink-900)", maxHeight: "60vh", overflowY: "auto" }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "var(--violet-700)", marginBottom: 12 }}>
+            ✍️ Califica cada respuesta — faltan {pending} por calificar
+          </div>
+          {entries.length === 0 ? (
+            <p style={{ textAlign: "center", color: "var(--ink-500)" }}>Aún no hay respuestas.</p>
+          ) : (
+            <div style={{ display: "grid", gap: 10 }}>
+              {entries.map(e => (
+                <div key={e.pid} style={{
+                  padding: 12, borderRadius: 10, background: "var(--ink-50)",
+                  border: e.graded ? "1px solid var(--emerald-400)" : "1px solid var(--ink-200)",
+                }}>
+                  <div style={{ fontSize: 12, color: "var(--ink-500)", marginBottom: 2 }}>{e.name}</div>
+                  <div style={{ fontSize: 15, marginBottom: 8 }}>{e.text}</div>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {[
+                      { id: "correct", label: "✓ Correcto", bg: "var(--emerald-500)" },
+                      { id: "partial", label: "± Parcial", bg: "var(--amber-500)" },
+                      { id: "wrong",   label: "✗ Incorrecto", bg: "var(--red-500)" },
+                    ].map(btn => (
+                      <button key={btn.id}
+                        onClick={() => onGradeLive(e.pid, btn.id)}
+                        style={{
+                          padding: "6px 12px", borderRadius: 8, border: "none", cursor: "pointer",
+                          fontWeight: 700, fontSize: 13, color: "white",
+                          background: btn.bg,
+                          opacity: e.graded && e.gradeResult !== btn.id ? 0.4 : 1,
+                          outline: e.graded && e.gradeResult === btn.id ? "3px solid var(--ink-900)" : "none",
+                        }}>
+                        {btn.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <button onClick={onNext} disabled={pending > 0 && entries.length > 0}
+            className="qs-btn qs-btn--lg" style={{
+              width: "100%", marginTop: 16,
+              background: (pending > 0 && entries.length > 0) ? "var(--ink-200)" : "white",
+              color: (pending > 0 && entries.length > 0) ? "var(--ink-400)" : "var(--violet-700)",
+              fontWeight: 800,
+            }}>
+            {pending > 0 && entries.length > 0
+              ? `Califica a todos para continuar (${pending} restantes)`
+              : (isLast ? "🏁 Ver ranking final" : "➡️ Siguiente pregunta")}
+          </button>
+        </div>
+      );
+    }
+
+    // gradeMode "end": solo mostrar respuestas
     return shell(
       <div className="qs-card" style={{ padding: 28, marginBottom: 20, color: "var(--ink-900)", maxHeight: "55vh", overflowY: "auto" }}>
-        {answers.length === 0 ? (
+        {entries.length === 0 ? (
           <p style={{ textAlign: "center", color: "var(--ink-500)" }}>Aún no hay respuestas.</p>
         ) : (
           <div style={{ display: "grid", gap: 8 }}>
-            {answers.map((a, i) => (
+            {entries.map((e, i) => (
               <div key={i} style={{
                 padding: "10px 14px", borderRadius: 10, background: "var(--ink-50)",
-                borderLeft: `4px solid ${a.correct ? "var(--emerald-500)" : "var(--ink-300)"}`,
                 fontSize: 15,
               }}>
-                {a.text}
+                <div style={{ fontSize: 12, color: "var(--ink-500)" }}>{e.name}</div>
+                {e.text}
               </div>
             ))}
           </div>
-        )}
-        {!isSurvey && (
-          <p style={{ fontSize: 12, color: "var(--ink-500)", marginTop: 12, textAlign: "center" }}>
-            ℹ️ Puedes ajustar la calificación de estas respuestas después, desde el panel de Resultados.
-          </p>
         )}
       </div>
     );
@@ -994,6 +1053,44 @@ function LiveSessionHost({ quizId, onExit }) {
     });
   };
 
+  // Calificar en vivo una respuesta abierta de un estudiante.
+  // result: "correct" | "partial" | "wrong". Asigna puntos y los suma al participante.
+  const gradeLiveAnswer = async (pid, result) => {
+    const qIdx = session.currentQuestionIdx;
+    const q = quiz.questions[qIdx];
+    const pCorrect = q.pointsCorrect ?? 100;
+    const pWrong = q.pointsWrong ?? 0;
+    const points = result === "correct" ? pCorrect
+      : result === "partial" ? Math.round(pCorrect / 2)
+      : pWrong;
+
+    const docId = `${pid}-${qIdx}`;
+    const answerRef = window.QS.db.collection("liveSessions").doc(sessionIdRef.current)
+      .collection("answers").doc(docId);
+    try {
+      const snap = await answerRef.get();
+      if (!snap.exists) return;
+      const prev = snap.data();
+      const prevPoints = prev.graded ? (prev.points || 0) : 0; // si re-califica, ajustar diferencia
+      // Actualizar la respuesta
+      await answerRef.update({
+        graded: true,
+        gradeResult: result,
+        correct: result === "correct",
+        points,
+      });
+      // Ajustar el puntaje del participante por la diferencia
+      const delta = points - prevPoints;
+      if (delta !== 0) {
+        await window.QS.db.collection("liveSessions").doc(sessionIdRef.current).update({
+          [`participants.${pid}.score`]: firebase.firestore.FieldValue.increment(delta),
+        });
+      }
+    } catch (err) {
+      console.error("Error calificando en vivo:", err);
+    }
+  };
+
   const goNext = async () => {
     const nextIdx = session.currentQuestionIdx + 1;
     if (nextIdx >= quiz.questions.length) {
@@ -1154,7 +1251,7 @@ function LiveSessionHost({ quizId, onExit }) {
     return (
       <>
         <HostReveal session={session} quiz={quiz} currentQ={currentQ}
-          answersThisQ={answersThisQ} onNext={goNext} />
+          answersThisQ={answersThisQ} onNext={goNext} onGradeLive={gradeLiveAnswer} />
         {participantsModal}
       </>
     );
@@ -1434,6 +1531,7 @@ function StudentLive({ sessionId, participantId, quizInitial, onExit }) {
   const [answeredAtIdx, setAnsweredAtIdx] = useStateL(-1);
   const [secondsLeft, setSecondsLeft] = useStateL(0);
   const [myResultThisQ, setMyResultThisQ] = useStateL(null); // resultado local de la pregunta actual
+  const [liveGrade, setLiveGrade] = useStateL(null); // calificación en vivo recibida del docente
   const [myAciertos, setMyAciertos] = useStateL(null);
   const myScore = (session?.participants?.[participantId]?.score) || 0;
 
@@ -1477,8 +1575,28 @@ function StudentLive({ sessionId, participantId, quizInitial, onExit }) {
     if (!session) return;
     setMyAnswer(null);
     setMyResultThisQ(null);
+    setLiveGrade(null);
     setAnsweredAtIdx(-1);
   }, [session?.currentQuestionIdx, session?.questionVersion]);
+
+  // Si la pregunta es abierta con calificación en vivo, durante "showResults"
+  // escuchar mi doc de respuesta para recibir la nota que ponga el docente.
+  useEffectL(() => {
+    if (!session || session.status !== "showResults") { setLiveGrade(null); return; }
+    const currentQ = quiz.questions[session.currentQuestionIdx];
+    if (!currentQ || currentQ.type !== "text" || (currentQ.gradeMode || "live") !== "live") return;
+    const docId = `${participantId}-${session.currentQuestionIdx}`;
+    const unsub = window.QS.db.collection("liveSessions").doc(sessionId)
+      .collection("answers").doc(docId)
+      .onSnapshot(doc => {
+        if (doc.exists) {
+          const d = doc.data();
+          if (d.graded) setLiveGrade({ result: d.gradeResult, points: d.points || 0 });
+          else setLiveGrade(null);
+        }
+      });
+    return () => unsub();
+  }, [session?.status, session?.currentQuestionIdx, sessionId, participantId]);
 
   // Cronómetro (respeta la pausa del docente)
   useEffectL(() => {
@@ -1512,13 +1630,16 @@ function StudentLive({ sessionId, participantId, quizInitial, onExit }) {
     const startedAt = session.questionStartedAt || Date.now();
     const secondsTaken = (Date.now() - startedAt) / 1000;
     const isSurvey = quiz.mode === "survey";
-    // En encuesta no hay respuesta correcta ni puntaje
-    const isCorrect = isSurvey ? null : checkAnswer(currentQ, answer);
-    const points = isSurvey ? 0 : calculatePoints(currentQ, isCorrect, secondsTaken, totalSec);
+    // Respuesta abierta con calificación en vivo: el docente pone la nota,
+    // no se autocalifica ni se asignan puntos al responder.
+    const isLiveGradedOpen = !isSurvey && currentQ.type === "text" && (currentQ.gradeMode || "live") === "live";
+    // En encuesta o en abiertas-en-vivo no hay respuesta correcta automática ni puntaje
+    const isCorrect = (isSurvey || isLiveGradedOpen) ? null : checkAnswer(currentQ, answer);
+    const points = (isSurvey || isLiveGradedOpen) ? 0 : calculatePoints(currentQ, isCorrect, secondsTaken, totalSec);
 
     setMyAnswer(answer);
     setAnsweredAtIdx(qIdx);
-    setMyResultThisQ({ correct: isCorrect, points, survey: isSurvey });
+    setMyResultThisQ({ correct: isCorrect, points, survey: isSurvey, pendingGrade: isLiveGradedOpen });
 
     try {
       // Si ya había respondido esta pregunta (p. ej. respondió, recargó y
@@ -1533,11 +1654,12 @@ function StudentLive({ sessionId, participantId, quizInitial, onExit }) {
       await answerRef.set({
         participantId, questionIdx: qIdx, answer,
         correct: isCorrect, points,
+        graded: false, // las abiertas-en-vivo las califica el docente
         secondsTaken, answeredAt: Date.now(),
       });
 
-      // Actualizar puntaje solo en modo quiz y solo la primera vez
-      if (!isSurvey && !alreadyScored && points !== 0) {
+      // Actualizar puntaje solo en modo quiz, no en abiertas-en-vivo, y solo la primera vez
+      if (!isSurvey && !isLiveGradedOpen && !alreadyScored && points !== 0) {
         const scoreKey = `participants.${participantId}.score`;
         await window.QS.db.collection("liveSessions").doc(sessionId).update({
           [scoreKey]: firebase.firestore.FieldValue.increment(points),
@@ -1708,6 +1830,29 @@ function StudentLive({ sessionId, participantId, quizInitial, onExit }) {
               <h2 style={{ fontSize: 24, color: "var(--violet-700)", marginBottom: 8 }}>¡Gracias por tu respuesta!</h2>
               <p style={{ color: "var(--ink-500)", marginBottom: 4 }}>Mira la pantalla del profesor para ver los resultados de todo el grupo.</p>
             </>
+          ) : reveal.pendingGrade ? (
+            // Respuesta abierta calificada en vivo: esperar la nota del docente
+            liveGrade ? (
+              <>
+                <div style={{ fontSize: 60, marginBottom: 8 }} className="qs-pop-in">
+                  {liveGrade.result === "correct" ? "🎉" : liveGrade.result === "partial" ? "👍" : "📝"}
+                </div>
+                <h2 style={{
+                  fontSize: 24, marginBottom: 8,
+                  color: liveGrade.result === "correct" ? "var(--emerald-600)"
+                    : liveGrade.result === "partial" ? "var(--amber-500)" : "var(--red-500)",
+                }}>
+                  {liveGrade.result === "correct" ? "¡Correcto!" : liveGrade.result === "partial" ? "Parcialmente correcto" : "Incorrecto"}
+                </h2>
+                <p style={{ color: "var(--ink-500)", marginBottom: 12 }}>+{liveGrade.points} puntos</p>
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: 56, marginBottom: 8 }} className="qs-bob">⏳</div>
+                <h2 style={{ fontSize: 22, color: "var(--violet-700)", marginBottom: 8 }}>El profesor está calificando...</h2>
+                <p style={{ color: "var(--ink-500)", marginBottom: 4 }}>Espera un momento, tu nota aparecerá aquí.</p>
+              </>
+            )
           ) : reveal.correct ? (
             <>
               <div style={{ fontSize: 64, marginBottom: 8 }} className="qs-pop-in">🎉</div>
