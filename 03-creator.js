@@ -364,7 +364,7 @@ function Dashboard({ onOpenEditor, onLaunch, onResults }) {
                   <I.copy size={14}/>
                 </button>
                 <button onClick={() => onLaunch(q.id)} className="qs-btn qs-btn--primary qs-btn--sm" style={{ flex: 1 }}>
-                  🎮 Sala en vivo
+                  🎮 En vivo 
                 </button>
               </div>
             </div>
