@@ -214,7 +214,7 @@ function Dashboard({ onOpenEditor, onLaunch, onResults }) {
           </div>
           <h1 style={{ fontSize: 36, color: "#fff", marginBottom: 8 }}>¡Hola, {firstName}! 👋</h1>
           <p style={{ opacity: .9, marginBottom: 20, fontSize: 16 }}>
-            Crea un quiz, comparte el código con tus participantes y mira las respuestas en vivo.
+            Crea un quiz, comparte el código con tus estudiantes y mira las respuestas en vivo.
           </p>
           <div style={{ display: "flex", gap: 12 }}>
             <button className="qs-btn" onClick={() => onOpenEditor("new")} style={{
