@@ -162,6 +162,42 @@ function Dashboard({ onOpenEditor, onLaunch, onResults }) {
     }
   };
 
+  const duplicateQuiz = async (id) => {
+    try {
+      const uid = window.QS.currentUser?.uid;
+      const doc = await window.QS.db.collection("quizzes").doc(id).get();
+      if (!doc.exists) { alert("No se encontró el quiz."); return; }
+      const data = doc.data();
+      // Crear copia: nuevo título, sin publicar, sin código, dueño actual
+      const copy = {
+        ...data,
+        title: (data.title || "Quiz") + " (copia)",
+        ownerId: uid,
+        isPublished: false,
+        publishCode: null,
+        plays: 0,
+        updatedAt: Date.now(),
+        createdAt: Date.now(),
+      };
+      const newRef = await window.QS.db.collection("quizzes").add(copy);
+      // Reflejar en la lista de inmediato
+      setQuizzes(prev => [{
+        id: newRef.id,
+        title: copy.title,
+        emoji: data.cover || "✨",
+        qs: (data.questions || []).length,
+        plays: 0,
+        color: data.color || "var(--violet-500)",
+        isPublished: false,
+        publishCode: null,
+        mode: data.mode || "quiz",
+        updatedAt: copy.updatedAt,
+      }, ...prev]);
+    } catch (err) {
+      alert("Error al duplicar: " + err.message);
+    }
+  };
+
   return (
     <div style={{ maxWidth: 1200, margin: "0 auto", padding: "32px" }}>
       {/* Hero */}
@@ -323,6 +359,9 @@ function Dashboard({ onOpenEditor, onLaunch, onResults }) {
               <div style={{ display: "flex", gap: 6, marginTop: "auto" }}>
                 <button onClick={() => onOpenEditor(q.id)} className="qs-btn qs-btn--ghost qs-btn--sm" style={{ flex: 1 }}>
                   <I.edit size={14}/> Editar
+                </button>
+                <button onClick={() => duplicateQuiz(q.id)} className="qs-btn qs-btn--ghost qs-btn--sm" title="Duplicar quiz">
+                  <I.copy size={14}/>
                 </button>
                 <button onClick={() => onLaunch(q.id)} className="qs-btn qs-btn--primary qs-btn--sm" style={{ flex: 1 }}>
                   🎮 Sala en vivo
@@ -739,6 +778,25 @@ function Editor({ quizId, onBack, onLaunch }) {
                   </div>
                 </div>
               )}
+            </div>
+
+            {/* Retroalimentación (opcional): se muestra al estudiante al revelar */}
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ink-700)", marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
+                💬 Retroalimentación (opcional)
+              </div>
+              <textarea
+                value={active.feedback || ""}
+                onChange={e => updateQuestion({ feedback: e.target.value })}
+                placeholder="Explica por qué esta es la respuesta. Se mostrará al estudiante cuando reveles la pregunta."
+                style={{
+                  width: "100%", border: "1px solid var(--ink-200)", borderRadius: 10,
+                  padding: "10px 14px", fontSize: 14, fontFamily: "inherit",
+                  resize: "vertical", outline: "none", minHeight: 60, color: "var(--ink-900)",
+                }}/>
+              <div style={{ fontSize: 12, color: "var(--ink-500)", marginTop: 6 }}>
+                Si lo dejas vacío, no se muestra nada. Útil para explicar el porqué de la respuesta.
+              </div>
             </div>
 
             {/* Options */}

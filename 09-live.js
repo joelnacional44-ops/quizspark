@@ -126,18 +126,114 @@ function checkAnswer(question, answer) {
 // ============================================================
 // HOST LOBBY — el profe espera que entren los estudiantes
 // ============================================================
+// Genera un código QR dentro de un contenedor usando la librería global QRCode
+function QRBox({ text, size = 200 }) {
+  const ref = useRefL(null);
+  useEffectL(() => {
+    if (!ref.current) return;
+    ref.current.innerHTML = "";
+    if (typeof window.QRCode === "undefined") {
+      ref.current.innerHTML = '<div style="font-size:12px;color:#64748b">QR no disponible</div>';
+      return;
+    }
+    try {
+      new window.QRCode(ref.current, {
+        text, width: size, height: size,
+        colorDark: "#0f172a", colorLight: "#ffffff",
+        correctLevel: window.QRCode.CorrectLevel.M,
+      });
+    } catch (e) {
+      ref.current.innerHTML = '<div style="font-size:12px;color:#64748b">QR no disponible</div>';
+    }
+  }, [text, size]);
+  return <div ref={ref} style={{ display: "inline-block", lineHeight: 0 }} />;
+}
+
+// Vista de PROYECCIÓN para el videobeam: código gigante + QR para unirse
+function ProjectionView({ session, quiz, joinUrl, participants, onClose }) {
+  return (
+    <div style={{
+      minHeight: "100vh",
+      background: "linear-gradient(135deg, var(--violet-600), var(--violet-900))",
+      color: "white", padding: "32px 24px",
+      display: "flex", flexDirection: "column", alignItems: "center",
+    }}>
+      <button onClick={onClose} style={{
+        position: "fixed", top: 16, right: 16, background: "rgba(255,255,255,0.18)",
+        color: "white", border: "1px solid rgba(255,255,255,0.3)", borderRadius: 10,
+        padding: "8px 16px", cursor: "pointer", fontWeight: 600, fontSize: 14,
+      }}>✕ Salir de proyección</button>
+
+      <h1 style={{ fontSize: "clamp(28px, 5vw, 48px)", marginTop: 16, marginBottom: 6, textAlign: "center" }}>
+        {quiz.title}
+      </h1>
+      <p style={{ opacity: 0.85, fontSize: 18, marginBottom: 32 }}>
+        Entra en <b>{(window.location.origin + window.location.pathname).replace("https://", "")}</b> → "Unirme a un quiz"
+      </p>
+
+      <div style={{
+        display: "flex", gap: 48, flexWrap: "wrap", justifyContent: "center", alignItems: "center",
+      }}>
+        {/* Código gigante */}
+        <div style={{ textAlign: "center" }}>
+          <p style={{ fontSize: 20, opacity: 0.85, marginBottom: 12, letterSpacing: ".1em" }}>CÓDIGO</p>
+          <div style={{
+            fontFamily: "var(--font-display)", fontWeight: 800,
+            fontSize: "clamp(64px, 12vw, 140px)", letterSpacing: "0.08em", lineHeight: 1,
+          }}>
+            {session.code}
+          </div>
+        </div>
+
+        {/* QR */}
+        <div style={{
+          background: "white", padding: 20, borderRadius: 20, textAlign: "center",
+        }}>
+          <QRBox text={joinUrl} size={240} />
+          <p style={{ color: "var(--ink-700)", fontSize: 14, fontWeight: 600, marginTop: 10 }}>
+            Escanea para entrar
+          </p>
+        </div>
+      </div>
+
+      {/* Participantes que van entrando */}
+      <div style={{ marginTop: 40, textAlign: "center", width: "100%", maxWidth: 900 }}>
+        <p style={{ fontSize: 20, marginBottom: 16 }}>
+          👥 {participants.length} {participants.length === 1 ? "estudiante conectado" : "estudiantes conectados"}
+        </p>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "center" }}>
+          {participants.map(p => (
+            <span key={p.id} className="qs-pop-in" style={{
+              padding: "8px 18px", borderRadius: 999, fontSize: 18, fontWeight: 700,
+              background: "rgba(255,255,255,0.2)",
+            }}>{p.name}</span>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function HostLobby({ session, quiz, onStart, onCancel, onKick }) {
   const participants = Object.values(session.participants || {})
     .sort((a, b) => (a.joinedAt || 0) - (b.joinedAt || 0));
   const baseUrl = window.location.origin + window.location.pathname;
   const joinUrl = `${baseUrl}?join=${session.code}`;
   const [copied, setCopied] = useStateL(false);
+  const [projection, setProjection] = useStateL(false);
 
   const copyLink = () => {
     navigator.clipboard.writeText(joinUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
+
+  if (projection) {
+    return <ProjectionView
+      session={session} quiz={quiz} joinUrl={joinUrl}
+      participants={participants} onClose={() => setProjection(false)}
+    />;
+  }
 
   return (
     <div style={{
@@ -182,9 +278,15 @@ function HostLobby({ session, quiz, onStart, onCancel, onKick }) {
             <button onClick={copyLink} className="qs-btn qs-btn--primary" style={{ width: "100%" }}>
               {copied ? "✓ Copiado" : "🔗 Copiar enlace"}
             </button>
-            <p style={{ fontSize: 11, color: "var(--ink-500)", marginTop: 12, lineHeight: 1.5 }}>
-              Los estudiantes deben ir a la app, hacer clic en <b>"Unirme a un quiz"</b> y escribir el código.
-            </p>
+            <button onClick={() => setProjection(true)} className="qs-btn qs-btn--ghost" style={{ width: "100%", marginTop: 8 }}>
+              📺 Modo proyección (QR)
+            </button>
+            <div style={{ marginTop: 16 }}>
+              <QRBox text={joinUrl} size={140} />
+              <p style={{ fontSize: 11, color: "var(--ink-500)", marginTop: 6 }}>
+                Escanea el QR o usa el modo proyección para el videobeam.
+              </p>
+            </div>
           </div>
 
           {/* Derecha: lista de participantes */}
@@ -576,6 +678,16 @@ function HostReveal({ session, quiz, currentQ, answersThisQ, onNext, onGradeLive
           )}
         </div>
         {inner}
+        {currentQ.feedback && currentQ.feedback.trim() && (
+          <div style={{
+            marginTop: 4, marginBottom: 16, padding: 14, borderRadius: 12,
+            background: "rgba(255,255,255,0.92)", color: "var(--ink-900)",
+            borderLeft: "4px solid var(--violet-500)", textAlign: "left",
+          }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "var(--violet-700)", marginBottom: 4 }}>💬 Retroalimentación</div>
+            <div style={{ fontSize: 15, lineHeight: 1.5 }}>{currentQ.feedback}</div>
+          </div>
+        )}
         <div style={{ marginTop: 4, marginBottom: 20, padding: 12, background: "rgba(255,255,255,0.15)", borderRadius: 10, textAlign: "center", fontSize: 13 }}>
           <b>{totalAnswers}</b> respuestas totales
         </div>
@@ -1994,6 +2106,15 @@ function StudentLive({ sessionId, participantId, quizInitial, onExit }) {
               <p style={{ fontSize: 28, fontFamily: "var(--font-display)", fontWeight: 800, color: "var(--violet-700)" }}>
                 {myScore} pts
               </p>
+            </div>
+          )}
+          {currentQ.feedback && currentQ.feedback.trim() && (
+            <div style={{
+              marginTop: 16, padding: 14, background: "var(--ink-50)", borderRadius: 12,
+              textAlign: "left", borderLeft: "4px solid var(--violet-500)",
+            }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "var(--violet-700)", marginBottom: 4 }}>💬 Retroalimentación</div>
+              <div style={{ fontSize: 14, color: "var(--ink-700)", lineHeight: 1.5 }}>{currentQ.feedback}</div>
             </div>
           )}
           <p style={{ fontSize: 13, color: "var(--ink-500)", marginTop: 16 }}>
