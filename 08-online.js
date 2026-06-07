@@ -56,6 +56,10 @@ function gradeSubmission(quiz, answers) {
       }
       // Si no hay respuestas aceptadas, queda sin calificar (0). El docente
       // las revisa manualmente solo en modo "calificar en vivo" (sala en vivo).
+    } else if (q.type === "order") {
+      const correctIds = (q.items || []).map(it => it.id);
+      const userIds = Array.isArray(userAnswer) ? userAnswer : [];
+      isCorrect = JSON.stringify(correctIds) === JSON.stringify(userIds);
     }
 
     // Puntos personalizados (con defaults para quizzes viejos)
@@ -616,7 +620,7 @@ function StudentExam({ examCode }) {
   const totalQ = questionsOrder.length;
   const progress = ((currentIdx + 1) / totalQ) * 100;
   const userAnswer = answers[q.id];
-  const isAnswered = q.type === "checks"
+  const isAnswered = q.type === "checks" || q.type === "order"
     ? Array.isArray(userAnswer) && userAnswer.length > 0
     : userAnswer !== undefined && userAnswer !== "";
 
@@ -654,13 +658,20 @@ function StudentExam({ examCode }) {
 
         {/* Pregunta */}
         <div className="qs-card qs-fade-in" key={q.id} style={{ padding: 28, marginBottom: 16 }}>
-          <h2 style={{ fontSize: 22, marginBottom: q.image ? 12 : 20, lineHeight: 1.4 }}>
+          <h2 style={{ fontSize: 22, marginBottom: (q.image || q.video) ? 12 : 20, lineHeight: 1.4 }}>
             {q.text}
           </h2>
           {q.image && (
-            <div style={{ textAlign: "center", marginBottom: 20 }}>
+            <div style={{ textAlign: "center", marginBottom: q.video ? 12 : 20 }}>
               <img src={q.image} alt=""
                 style={{ maxWidth: "100%", maxHeight: 280, borderRadius: 10, border: "1px solid var(--ink-200)" }}/>
+            </div>
+          )}
+          {q.video && youtubeId(q.video) && (
+            <div style={{ marginBottom: 20, position: "relative", paddingBottom: "56.25%", height: 0, borderRadius: 10, overflow: "hidden" }}>
+              <iframe src={`https://www.youtube.com/embed/${youtubeId(q.video)}`} title="Video"
+                style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", border: 0 }}
+                allowFullScreen/>
             </div>
           )}
 
@@ -756,6 +767,69 @@ function StudentExam({ examCode }) {
               style={{ fontSize: 16 }}
             />
           )}
+
+          {/* Ordenar */}
+          {q.type === "order" && (() => {
+            // Establecer un orden inicial mezclado si aún no ha respondido
+            const currentOrder = Array.isArray(userAnswer) && userAnswer.length > 0
+              ? userAnswer
+              : (() => {
+                  const ids = (q.items || []).map(it => it.id);
+                  for (let i = ids.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [ids[i], ids[j]] = [ids[j], ids[i]];
+                  }
+                  return ids;
+                })();
+            const byId = {}; (q.items || []).forEach(it => byId[it.id] = it);
+            const move = (idx, dir) => {
+              const ni = idx + dir;
+              if (ni < 0 || ni >= currentOrder.length) return;
+              const next = [...currentOrder];
+              [next[idx], next[ni]] = [next[ni], next[idx]];
+              setAnswer(q.id, next);
+            };
+            // Si no había respuesta previa, guardar el orden inicial mezclado
+            if (!Array.isArray(userAnswer) || userAnswer.length === 0) {
+              setTimeout(() => setAnswer(q.id, currentOrder), 0);
+            }
+            return (
+              <div style={{ display: "grid", gap: 8 }}>
+                <p style={{ fontSize: 13, color: "var(--ink-500)", marginBottom: 4 }}>
+                  Usa ↑ y ↓ para acomodar los elementos en el orden correcto:
+                </p>
+                {currentOrder.map((id, i) => {
+                  const it = byId[id];
+                  if (!it) return null;
+                  return (
+                    <div key={id} style={{
+                      display: "flex", alignItems: "center", gap: 8, padding: "10px 12px",
+                      borderRadius: 12, background: "var(--ink-50)", border: "1px solid var(--ink-200)",
+                    }}>
+                      <span style={{
+                        width: 26, height: 26, borderRadius: "50%", flexShrink: 0,
+                        background: "var(--violet-100)", color: "var(--violet-700)",
+                        display: "grid", placeItems: "center", fontWeight: 800, fontSize: 13,
+                      }}>{i + 1}</span>
+                      <span style={{ flex: 1, fontSize: 15, fontWeight: 600 }}>{it.text}</span>
+                      <button onClick={() => move(i, -1)} disabled={i === 0}
+                        style={{
+                          width: 32, height: 32, borderRadius: 8, border: "1px solid var(--ink-200)",
+                          background: i === 0 ? "var(--ink-100)" : "white", cursor: i === 0 ? "default" : "pointer",
+                          fontSize: 16, fontWeight: 800, color: i === 0 ? "var(--ink-300)" : "var(--violet-700)",
+                        }}>↑</button>
+                      <button onClick={() => move(i, 1)} disabled={i === currentOrder.length - 1}
+                        style={{
+                          width: 32, height: 32, borderRadius: 8, border: "1px solid var(--ink-200)",
+                          background: i === currentOrder.length - 1 ? "var(--ink-100)" : "white", cursor: i === currentOrder.length - 1 ? "default" : "pointer",
+                          fontSize: 16, fontWeight: 800, color: i === currentOrder.length - 1 ? "var(--ink-300)" : "var(--violet-700)",
+                        }}>↓</button>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
         </div>
 
         {/* Navegación */}

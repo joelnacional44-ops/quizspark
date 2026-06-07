@@ -120,6 +120,13 @@ function checkAnswer(question, answer) {
     const accepted = (question.acceptedAnswers || []).map(a => a.toLowerCase().trim());
     return accepted.includes((answer || "").toLowerCase().trim());
   }
+  if (question.type === "order") {
+    // answer es array de ids en el orden que envió el estudiante.
+    // El orden correcto es el de items tal cual están guardados.
+    const correctIds = (question.items || []).map(it => it.id);
+    const userIds = Array.isArray(answer) ? answer : [];
+    return JSON.stringify(correctIds) === JSON.stringify(userIds);
+  }
   return false;
 }
 
@@ -448,13 +455,20 @@ function HostQuestion({ session, quiz, currentQ, answersThisQ, totalParticipants
 
         {/* Pregunta */}
         <div className="qs-card" style={{ padding: 32, marginBottom: 20, color: "var(--ink-900)" }}>
-          <h1 style={{ fontSize: 32, textAlign: "center", marginBottom: currentQ.image ? 16 : 24, lineHeight: 1.3 }}>
+          <h1 style={{ fontSize: 32, textAlign: "center", marginBottom: (currentQ.image || currentQ.video) ? 16 : 24, lineHeight: 1.3 }}>
             {currentQ.text}
           </h1>
           {currentQ.image && (
-            <div style={{ textAlign: "center", marginBottom: 24 }}>
+            <div style={{ textAlign: "center", marginBottom: currentQ.video ? 12 : 24 }}>
               <img src={currentQ.image} alt=""
                 style={{ maxWidth: "100%", maxHeight: 340, borderRadius: 12, border: "1px solid var(--ink-200)" }}/>
+            </div>
+          )}
+          {currentQ.video && youtubeId(currentQ.video) && (
+            <div style={{ maxWidth: 640, margin: "0 auto 24px", position: "relative", paddingBottom: "56.25%", height: 0, borderRadius: 12, overflow: "hidden" }}>
+              <iframe src={`https://www.youtube.com/embed/${youtubeId(currentQ.video)}`} title="Video"
+                style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", border: 0 }}
+                allowFullScreen/>
             </div>
           )}
           {currentQ.type === "wordcloud" ? (
@@ -477,6 +491,28 @@ function HostQuestion({ session, quiz, currentQ, answersThisQ, totalParticipants
                   </div>
                 );
               })}
+            </div>
+          ) : currentQ.type === "order" ? (
+            <div>
+              <div style={{ textAlign: "center", padding: "8px 12px", marginBottom: 10, background: "var(--violet-50)", borderRadius: 10, color: "var(--violet-700)", fontWeight: 700, fontSize: 14 }}>
+                🔢 Los estudiantes están ordenando estos elementos:
+              </div>
+              <div style={{ display: "grid", gap: 8 }}>
+                {(currentQ.items || []).map((it, i) => (
+                  <div key={it.id} style={{
+                    padding: "12px 16px", borderRadius: 12, background: "var(--ink-50)",
+                    color: "var(--ink-900)", fontWeight: 600, display: "flex", alignItems: "center", gap: 10,
+                  }}>
+                    <span style={{ width: 26, height: 26, borderRadius: "50%", background: "var(--violet-600)", color: "white", display: "grid", placeItems: "center", fontWeight: 800, fontSize: 13 }}>{i + 1}</span>
+                    {it.text}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : currentQ.type === "text" ? (
+            <div style={{ textAlign: "center", padding: 20, background: "var(--ink-50)", borderRadius: 14, color: "var(--ink-500)" }}>
+              <div style={{ fontSize: 32, marginBottom: 6 }}>✍️</div>
+              <div style={{ fontWeight: 700 }}>Respuesta abierta — los estudiantes están escribiendo</div>
             </div>
           ) : (
           <div style={{
@@ -676,6 +712,13 @@ function HostReveal({ session, quiz, currentQ, answersThisQ, onNext, onGradeLive
                 style={{ maxWidth: "100%", maxHeight: 220, borderRadius: 10 }}/>
             </div>
           )}
+          {currentQ.video && youtubeId(currentQ.video) && (
+            <div style={{ marginTop: 12, maxWidth: 480, position: "relative", paddingBottom: "27%", height: 0, borderRadius: 10, overflow: "hidden" }}>
+              <iframe src={`https://www.youtube.com/embed/${youtubeId(currentQ.video)}`} title="Video"
+                style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", border: 0 }}
+                allowFullScreen/>
+            </div>
+          )}
         </div>
         {inner}
         {currentQ.feedback && currentQ.feedback.trim() && (
@@ -752,6 +795,39 @@ function HostReveal({ session, quiz, currentQ, answersThisQ, onNext, onGradeLive
             );
           })}
         </div>
+      </div>
+    );
+  }
+
+  // ===== Ordenar: mostrar el orden correcto y cuántos acertaron =====
+  if (currentQ.type === "order") {
+    const correctCount = Object.values(answersThisQ || {}).filter(a => a.correct).length;
+    const total = Object.keys(answersThisQ || {}).length;
+    return shell(
+      <div className="qs-card" style={{ padding: 24, marginBottom: 20, color: "var(--ink-900)" }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: "var(--emerald-600)", marginBottom: 10, textAlign: "center" }}>
+          ✓ Orden correcto
+        </div>
+        <div style={{ display: "grid", gap: 8, marginBottom: 14 }}>
+          {(currentQ.items || []).map((it, i) => (
+            <div key={it.id} style={{
+              display: "flex", alignItems: "center", gap: 10, padding: "10px 14px",
+              borderRadius: 10, background: "var(--emerald-50, #d1fae5)",
+              borderLeft: "4px solid var(--emerald-500)",
+            }}>
+              <span style={{
+                width: 26, height: 26, borderRadius: "50%", background: "var(--emerald-500)",
+                color: "white", display: "grid", placeItems: "center", fontWeight: 800, fontSize: 13, flexShrink: 0,
+              }}>{i + 1}</span>
+              <span style={{ fontSize: 15, fontWeight: 600 }}>{it.text}</span>
+            </div>
+          ))}
+        </div>
+        {total > 0 && (
+          <div style={{ padding: 10, background: "var(--violet-50)", borderRadius: 10, textAlign: "center", fontSize: 14, color: "var(--violet-700)", fontWeight: 700 }}>
+            {correctCount} de {total} {correctCount === 1 ? "estudiante acertó" : "estudiantes acertaron"} el orden completo
+          </div>
+        )}
       </div>
     );
   }
@@ -2191,6 +2267,13 @@ function StudentLive({ sessionId, participantId, quizInitial, onExit }) {
                   style={{ maxWidth: "100%", maxHeight: 240, borderRadius: 10, border: "1px solid var(--ink-200)" }}/>
               </div>
             )}
+            {currentQ.video && youtubeId(currentQ.video) && (
+              <div style={{ marginTop: 12, position: "relative", paddingBottom: "56.25%", height: 0, borderRadius: 10, overflow: "hidden" }}>
+                <iframe src={`https://www.youtube.com/embed/${youtubeId(currentQ.video)}`} title="Video"
+                  style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", border: 0 }}
+                  allowFullScreen/>
+              </div>
+            )}
           </div>
 
           {(currentQ.type === "multi" || currentQ.type === "truefalse" || currentQ.type === "poll") && (
@@ -2256,6 +2339,10 @@ function StudentLive({ sessionId, participantId, quizInitial, onExit }) {
           {currentQ.type === "text" && (
             <TextAnswer onSubmit={(t) => submitAnswer(t)} />
           )}
+
+          {currentQ.type === "order" && (
+            <OrderSelector items={currentQ.items || []} onSubmit={(ids) => submitAnswer(ids)} />
+          )}
         </div>
       </div>
     );
@@ -2311,6 +2398,69 @@ function TextAnswer({ onSubmit, placeholder = "Escribe tu respuesta..." }) {
         className="qs-btn qs-btn--success qs-btn--lg"
         style={{ width: "100%" }}
       >Enviar respuesta</button>
+    </>
+  );
+}
+
+// Selector para preguntas de ORDENAR: el estudiante reordena con ↑ ↓
+function OrderSelector({ items, onSubmit }) {
+  // Mezclar los items al inicio (orden aleatorio) y dejar que el estudiante reordene
+  const [order, setOrder] = useStateL(() => {
+    const ids = (items || []).map(it => it.id);
+    // Fisher-Yates shuffle
+    for (let i = ids.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [ids[i], ids[j]] = [ids[j], ids[i]];
+    }
+    return ids;
+  });
+  const byId = {}; (items || []).forEach(it => byId[it.id] = it);
+  const move = (idx, dir) => {
+    const ni = idx + dir;
+    if (ni < 0 || ni >= order.length) return;
+    const next = [...order];
+    [next[idx], next[ni]] = [next[ni], next[idx]];
+    setOrder(next);
+  };
+  return (
+    <>
+      <p style={{ color: "white", fontSize: 13, marginBottom: 8, textAlign: "center" }}>
+        Acomoda los elementos en el orden correcto y pulsa enviar
+      </p>
+      <div style={{ display: "grid", gap: 8, marginBottom: 12 }}>
+        {order.map((id, i) => {
+          const it = byId[id];
+          if (!it) return null;
+          return (
+            <div key={id} style={{
+              display: "flex", alignItems: "center", gap: 8, padding: "10px 12px",
+              borderRadius: 12, background: "rgba(255,255,255,0.95)", color: "var(--ink-900)",
+            }}>
+              <span style={{
+                width: 26, height: 26, borderRadius: "50%", flexShrink: 0,
+                background: "var(--violet-100)", color: "var(--violet-700)",
+                display: "grid", placeItems: "center", fontWeight: 800, fontSize: 13,
+              }}>{i + 1}</span>
+              <span style={{ flex: 1, fontSize: 15, fontWeight: 600 }}>{it.text}</span>
+              <button onClick={() => move(i, -1)} disabled={i === 0}
+                style={{
+                  width: 32, height: 32, borderRadius: 8, border: "1px solid var(--ink-200)",
+                  background: i === 0 ? "var(--ink-100)" : "white", cursor: i === 0 ? "default" : "pointer",
+                  fontSize: 16, fontWeight: 800, color: i === 0 ? "var(--ink-300)" : "var(--violet-700)",
+                }}>↑</button>
+              <button onClick={() => move(i, 1)} disabled={i === order.length - 1}
+                style={{
+                  width: 32, height: 32, borderRadius: 8, border: "1px solid var(--ink-200)",
+                  background: i === order.length - 1 ? "var(--ink-100)" : "white", cursor: i === order.length - 1 ? "default" : "pointer",
+                  fontSize: 16, fontWeight: 800, color: i === order.length - 1 ? "var(--ink-300)" : "var(--violet-700)",
+                }}>↓</button>
+            </div>
+          );
+        })}
+      </div>
+      <button onClick={() => onSubmit(order)}
+        className="qs-btn qs-btn--success qs-btn--lg"
+        style={{ width: "100%" }}>Enviar respuesta</button>
     </>
   );
 }
