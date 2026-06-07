@@ -144,6 +144,7 @@ const QUESTION_TYPES = [
   { id: "truefalse", label: "Verdadero / Falso", icon: "truefalse", desc: "Dos opciones" },
   { id: "checks",    label: "Selección múltiple",icon: "checks",    desc: "Varias correctas" },
   { id: "text",      label: "Respuesta corta",   icon: "text",      desc: "Texto libre" },
+  { id: "order",     label: "Ordenar",           icon: "list",      desc: "Ordenar elementos en secuencia" },
 ];
 
 // Tipos de pregunta para el MODO ENCUESTA (sin respuesta correcta, no califica)
@@ -161,9 +162,25 @@ const SCALE_LABELS = [
 const tileColor = (idx) => ["var(--tile-1)", "var(--tile-2)", "var(--tile-3)", "var(--tile-4)"][idx % 4];
 const tileShape = (idx) => ["▲", "◆", "●", "■"][idx % 4];
 
+// Extrae el ID de un enlace de YouTube (varias formas: watch?v=, youtu.be/, embed/, shorts/)
+function youtubeId(url) {
+  if (!url) return null;
+  const patterns = [
+    /[?&]v=([a-zA-Z0-9_-]{11})/,        // youtube.com/watch?v=ID
+    /youtu\.be\/([a-zA-Z0-9_-]{11})/,    // youtu.be/ID
+    /youtube\.com\/embed\/([a-zA-Z0-9_-]{11})/, // /embed/ID
+    /youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})/, // /shorts/ID
+  ];
+  for (const re of patterns) {
+    const m = url.match(re);
+    if (m) return m[1];
+  }
+  return null;
+}
+
 // Make any of these globals
 Object.assign(window, {
   I, MOCK_QUIZ, MOCK_PARTICIPANTS, MOCK_RESULTS,
-  QUESTION_TYPES, SURVEY_TYPES, SCALE_LABELS, tileColor, tileShape,
+  QUESTION_TYPES, SURVEY_TYPES, SCALE_LABELS, tileColor, tileShape, youtubeId,
   useState, useEffect, useRef, useMemo, useCallback,
 });

@@ -403,6 +403,9 @@ function Editor({ quizId, onBack, onLaunch }) {
   }));
   const [activeIdx, setActiveIdx] = useStateC(0);
   const [showSettings, setShowSettings] = useStateC(false);
+  // Paneles desplegables por pregunta (multimedia / corrección)
+  const [showMedia, setShowMedia] = useStateC(false);
+  const [showCorrection, setShowCorrection] = useStateC(false);
   const [saving, setSaving] = useStateC(false);
   const [saveStatus, setSaveStatus] = useStateC("");
   const [showPublish, setShowPublish] = useStateC(false);
@@ -529,9 +532,15 @@ function Editor({ quizId, onBack, onLaunch }) {
     ]};
     else if (type === "scale") q = { ...base, type, scaleLabels: [...SCALE_LABELS] };
     else if (type === "wordcloud") q = { ...base, type };
+    // ---- Ordenar: el estudiante ordena los elementos. items va en ORDEN CORRECTO ----
+    else if (type === "order") q = { ...base, type, items: [
+      { id: "i1", text: "" }, { id: "i2", text: "" },
+      { id: "i3", text: "" }, { id: "i4", text: "" },
+    ]};
     else q = { ...base, type: "text", acceptedAnswers: [], gradeMode: "live" };
     setQuiz(qz => ({ ...qz, questions: [...qz.questions, q] }));
     setActiveIdx(quiz.questions.length);
+    setShowMedia(false); setShowCorrection(false);
   };
 
   const duplicateQuestion = (idx) => {
@@ -592,10 +601,30 @@ function Editor({ quizId, onBack, onLaunch }) {
       <div className="qs-editor-grid">
         {/* Question list */}
         <aside className="qs-editor-list">
+          {/* AGREGAR PREGUNTA — ahora ARRIBA para crear más rápido */}
+          <div style={{ fontSize: 12, fontWeight: 800, color: "var(--ink-500)", letterSpacing: ".05em", marginBottom: 8 }}>
+            AGREGAR {quiz.mode === "survey" ? "PREGUNTA DE ENCUESTA" : "PREGUNTA"}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 16 }}>
+            {(quiz.mode === "survey" ? SURVEY_TYPES : QUESTION_TYPES).map(t => {
+              const Tico = I[t.icon];
+              return (
+                <button key={t.id} onClick={() => addQuestion(t.id)} style={{
+                  padding: "10px 8px", borderRadius: 12, background: "var(--ink-50)",
+                  display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
+                  border: "1px solid var(--ink-200)", color: "var(--ink-700)",
+                }}>
+                  <Tico size={18} stroke="var(--violet-600)"/>
+                  <div style={{ fontSize: 11, fontWeight: 700, textAlign: "center" }}>{t.label}</div>
+                </button>
+              );
+            })}
+          </div>
+
           <div style={{ fontSize: 12, fontWeight: 800, color: "var(--ink-500)", letterSpacing: ".05em", marginBottom: 10 }}>
             PREGUNTAS · {quiz.questions.length}
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {quiz.questions.map((q, i) => {
               const t = QUESTION_TYPES.find(t => t.id === q.type);
               const Tico = t ? I[t.icon] : I.list;
@@ -644,24 +673,6 @@ function Editor({ quizId, onBack, onLaunch }) {
               );
             })}
           </div>
-          <div style={{ fontSize: 12, fontWeight: 800, color: "var(--ink-500)", letterSpacing: ".05em", marginBottom: 8 }}>
-            AGREGAR {quiz.mode === "survey" ? "PREGUNTA DE ENCUESTA" : "PREGUNTA"}
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-            {(quiz.mode === "survey" ? SURVEY_TYPES : QUESTION_TYPES).map(t => {
-              const Tico = I[t.icon];
-              return (
-                <button key={t.id} onClick={() => addQuestion(t.id)} style={{
-                  padding: "10px 8px", borderRadius: 12, background: "var(--ink-50)",
-                  display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
-                  border: "1px solid var(--ink-200)", color: "var(--ink-700)",
-                }}>
-                  <Tico size={18} stroke="var(--violet-600)"/>
-                  <div style={{ fontSize: 11, fontWeight: 700, textAlign: "center" }}>{t.label}</div>
-                </button>
-              );
-            })}
-          </div>
         </aside>
 
         {/* Center: question canvas */}
@@ -680,65 +691,6 @@ function Editor({ quizId, onBack, onLaunch }) {
               </span>
             </div>
 
-            {/* === Puntuación de la pregunta (solo en modo quiz) === */}
-            {quiz.mode !== "survey" && (
-            <div style={{
-              background: "var(--violet-50)", border: "1px solid var(--violet-200)",
-              borderRadius: 12, padding: 14, marginBottom: 16,
-            }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: "var(--violet-700)", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
-                🎯 Puntuación de esta pregunta
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
-                <label style={{ display: "block" }}>
-                  <span style={{ fontSize: 11, color: "var(--ink-500)", fontWeight: 600, display: "block", marginBottom: 4 }}>
-                    Si ACIERTA
-                  </span>
-                  <input type="number"
-                    value={active.pointsCorrect ?? 100}
-                    onChange={e => updateQuestion({ pointsCorrect: +e.target.value })}
-                    style={{
-                      width: "100%", padding: "8px 10px", borderRadius: 8,
-                      border: "1px solid var(--ink-200)", fontWeight: 700,
-                      fontSize: 16, color: "var(--emerald-600)",
-                    }}
-                  />
-                </label>
-                <label style={{ display: "block" }}>
-                  <span style={{ fontSize: 11, color: "var(--ink-500)", fontWeight: 600, display: "block", marginBottom: 4 }}>
-                    Si FALLA
-                  </span>
-                  <input type="number"
-                    value={active.pointsWrong ?? 0}
-                    onChange={e => updateQuestion({ pointsWrong: +e.target.value })}
-                    style={{
-                      width: "100%", padding: "8px 10px", borderRadius: 8,
-                      border: "1px solid var(--ink-200)", fontWeight: 700,
-                      fontSize: 16, color: "var(--red-500)",
-                    }}
-                  />
-                </label>
-                <label style={{ display: "block" }}>
-                  <span style={{ fontSize: 11, color: "var(--ink-500)", fontWeight: 600, display: "block", marginBottom: 4 }}>
-                    Bonus VELOCIDAD (máx)
-                  </span>
-                  <input type="number"
-                    value={active.pointsSpeedBonus ?? 0}
-                    onChange={e => updateQuestion({ pointsSpeedBonus: +e.target.value })}
-                    style={{
-                      width: "100%", padding: "8px 10px", borderRadius: 8,
-                      border: "1px solid var(--ink-200)", fontWeight: 700,
-                      fontSize: 16, color: "var(--amber-500)",
-                    }}
-                  />
-                </label>
-              </div>
-              <p style={{ fontSize: 11, color: "var(--ink-500)", marginTop: 8, lineHeight: 1.5 }}>
-                ℹ️ El bonus por velocidad solo aplica en modo <b>En vivo</b>. Puedes usar valores negativos en "Si falla" para penalizar respuestas incorrectas.
-              </p>
-            </div>
-            )}
-
             <textarea value={active.text}
               onChange={e => updateQuestion({ text: e.target.value })}
               placeholder="Escribe tu pregunta aquí..."
@@ -748,56 +700,6 @@ function Editor({ quizId, onBack, onLaunch }) {
                 resize: "none", outline: "none", minHeight: 80, marginBottom: 16,
                 background: "var(--ink-50)", color: "var(--ink-900)",
               }}/>
-
-            {/* Imagen del enunciado (opcional, por URL) */}
-            <div style={{ marginBottom: 20 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ink-700)", marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
-                🖼️ Imagen del enunciado (opcional)
-              </div>
-              <input className="qs-input"
-                placeholder="Pega el enlace directo de la imagen (termina en .jpg, .png, .webp...)"
-                value={active.image || ""}
-                onChange={e => updateQuestion({ image: e.target.value.trim() })}/>
-              <div style={{ fontSize: 12, color: "var(--ink-500)", marginTop: 6, lineHeight: 1.5 }}>
-                Clic derecho sobre la imagen en su web → "Copiar dirección de la imagen". Debe ser el enlace directo, no el de la página.
-              </div>
-              {active.image && (
-                <div style={{ marginTop: 10 }}>
-                  <img src={active.image} alt="Vista previa"
-                    onError={(e) => { e.currentTarget.style.display = "none"; e.currentTarget.nextSibling.style.display = "block"; }}
-                    onLoad={(e) => { e.currentTarget.style.display = "block"; e.currentTarget.nextSibling.style.display = "none"; }}
-                    style={{
-                      maxWidth: "100%", maxHeight: 240, borderRadius: 12,
-                      border: "1px solid var(--ink-200)", display: "block",
-                    }}/>
-                  <div style={{
-                    display: "none", padding: 12, borderRadius: 10, background: "#fef3c7",
-                    color: "#92400e", fontSize: 13,
-                  }}>
-                    ⚠️ No se pudo cargar la imagen. Verifica que el enlace sea directo (que termine en .jpg, .png, etc.) y que sea público.
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Retroalimentación (opcional): se muestra al estudiante al revelar */}
-            <div style={{ marginBottom: 20 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ink-700)", marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
-                💬 Retroalimentación (opcional)
-              </div>
-              <textarea
-                value={active.feedback || ""}
-                onChange={e => updateQuestion({ feedback: e.target.value })}
-                placeholder="Explica por qué esta es la respuesta. Se mostrará al estudiante cuando reveles la pregunta."
-                style={{
-                  width: "100%", border: "1px solid var(--ink-200)", borderRadius: 10,
-                  padding: "10px 14px", fontSize: 14, fontFamily: "inherit",
-                  resize: "vertical", outline: "none", minHeight: 60, color: "var(--ink-900)",
-                }}/>
-              <div style={{ fontSize: 12, color: "var(--ink-500)", marginTop: 6 }}>
-                Si lo dejas vacío, no se muestra nada. Útil para explicar el porqué de la respuesta.
-              </div>
-            </div>
 
             {/* Options */}
             {active.type === "wordcloud" ? (
@@ -839,33 +741,6 @@ function Editor({ quizId, onBack, onLaunch }) {
               </div>
             ) : active.type === "text" ? (
               <div>
-                {/* Modo de calificación de la respuesta abierta (solo modo quiz) */}
-                {quiz.mode !== "survey" && (
-                  <div style={{ marginBottom: 16 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ink-700)", marginBottom: 8 }}>
-                      ¿Cómo calificar esta respuesta abierta?
-                    </div>
-                    <div style={{ display: "grid", gap: 8 }}>
-                      {[
-                        { id: "live", title: "✍️ Calificar en vivo", desc: "En la sala en vivo, marcas correcto/parcial/incorrecto a cada estudiante antes de pasar a la siguiente pregunta." },
-                        { id: "end",  title: "📋 Solo recoger respuestas", desc: "No se asigna nota automáticamente; solo verás las respuestas (en la sala y en Resultados)." },
-                      ].map(opt => {
-                        const on = (active.gradeMode || "live") === opt.id;
-                        return (
-                          <button key={opt.id} onClick={() => updateQuestion({ gradeMode: opt.id })}
-                            style={{
-                              textAlign: "left", padding: "10px 14px", borderRadius: 12,
-                              border: on ? "2px solid var(--violet-500)" : "1px solid var(--ink-200)",
-                              background: on ? "var(--violet-50)" : "var(--white)", cursor: "pointer",
-                            }}>
-                            <div style={{ fontWeight: 700, fontSize: 14, color: on ? "var(--violet-700)" : "var(--ink-900)" }}>{opt.title}</div>
-                            <div style={{ fontSize: 12, color: "var(--ink-500)", marginTop: 2 }}>{opt.desc}</div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
                 <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ink-700)", marginBottom: 8 }}>
                   Respuestas aceptadas (opcional, separadas por coma)
                 </div>
@@ -874,6 +749,45 @@ function Editor({ quizId, onBack, onLaunch }) {
                   onChange={e => updateQuestion({ acceptedAnswers: e.target.value.split(",").map(s => s.trim()) })}/>
                 <div style={{ marginTop: 8, fontSize: 12, color: "var(--ink-500)" }}>
                   Si pones respuestas aceptadas, se comparan automáticamente (ignorando mayúsculas y acentos). Déjalo vacío para calificar a mano.
+                </div>
+              </div>
+            ) : active.type === "order" ? (
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ink-700)", marginBottom: 8 }}>
+                  Elementos en el ORDEN CORRECTO
+                </div>
+                <div style={{ display: "grid", gap: 8 }}>
+                  {(active.items || []).map((it, i) => (
+                    <div key={it.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <span style={{
+                        width: 28, height: 28, borderRadius: "50%", flexShrink: 0,
+                        background: "var(--violet-100)", color: "var(--violet-700)",
+                        display: "grid", placeItems: "center", fontWeight: 800, fontSize: 13,
+                      }}>{i + 1}</span>
+                      <input className="qs-input" value={it.text}
+                        placeholder={`Elemento ${i + 1}`}
+                        onChange={e => {
+                          const items = (active.items || []).map(x => x.id === it.id ? { ...x, text: e.target.value } : x);
+                          updateQuestion({ items });
+                        }}/>
+                      <button onClick={() => {
+                          const items = (active.items || []).filter(x => x.id !== it.id);
+                          updateQuestion({ items });
+                        }}
+                        title="Quitar elemento"
+                        style={{ background: "transparent", border: "none", cursor: "pointer", color: "var(--red-500)", fontSize: 18, flexShrink: 0 }}>×</button>
+                    </div>
+                  ))}
+                </div>
+                <button onClick={() => {
+                    const items = [...(active.items || []), { id: "i" + Date.now(), text: "" }];
+                    updateQuestion({ items });
+                  }}
+                  className="qs-btn qs-btn--ghost qs-btn--sm" style={{ marginTop: 8 }}>
+                  + Agregar elemento
+                </button>
+                <div style={{ marginTop: 8, fontSize: 12, color: "var(--ink-500)" }}>
+                  Escríbelos en el orden correcto. Al estudiante se le mostrarán desordenados para que los acomode.
                 </div>
               </div>
             ) : (
@@ -917,7 +831,144 @@ function Editor({ quizId, onBack, onLaunch }) {
                active.type === "checks" ? "💡 Marca todas las respuestas correctas" :
                active.type === "multi"  ? "💡 Marca solo una respuesta correcta" :
                active.type === "truefalse" ? "💡 Selecciona si la afirmación es verdadera o falsa" :
+               active.type === "order" ? "💡 Escríbelos en el orden correcto" :
                "💡 Acepta varias respuestas equivalentes"}
+            </div>
+
+            {/* === Puntuación de esta pregunta (movida abajo, solo modo quiz) === */}
+            {quiz.mode !== "survey" && (
+            <div style={{
+              background: "var(--violet-50)", border: "1px solid var(--violet-200)",
+              borderRadius: 12, padding: 14, marginTop: 20,
+            }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "var(--violet-700)", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+                🎯 Puntuación de esta pregunta
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10 }}>
+                <label style={{ display: "block" }}>
+                  <span style={{ fontSize: 11, color: "var(--ink-500)", fontWeight: 600, display: "block", marginBottom: 4 }}>Si ACIERTA</span>
+                  <input type="number" value={active.pointsCorrect ?? 100}
+                    onChange={e => updateQuestion({ pointsCorrect: +e.target.value })}
+                    style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid var(--ink-200)", fontWeight: 700, fontSize: 16, color: "var(--emerald-600)" }}/>
+                </label>
+                <label style={{ display: "block" }}>
+                  <span style={{ fontSize: 11, color: "var(--ink-500)", fontWeight: 600, display: "block", marginBottom: 4 }}>Si FALLA</span>
+                  <input type="number" value={active.pointsWrong ?? 0}
+                    onChange={e => updateQuestion({ pointsWrong: +e.target.value })}
+                    style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid var(--ink-200)", fontWeight: 700, fontSize: 16, color: "var(--red-500)" }}/>
+                </label>
+                <label style={{ display: "block" }}>
+                  <span style={{ fontSize: 11, color: "var(--ink-500)", fontWeight: 600, display: "block", marginBottom: 4 }}>Bonus VELOCIDAD</span>
+                  <input type="number" value={active.pointsSpeedBonus ?? 0}
+                    onChange={e => updateQuestion({ pointsSpeedBonus: +e.target.value })}
+                    style={{ width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid var(--ink-200)", fontWeight: 700, fontSize: 16, color: "var(--amber-500)" }}/>
+                </label>
+              </div>
+              <p style={{ fontSize: 11, color: "var(--ink-500)", marginTop: 8, lineHeight: 1.5 }}>
+                ℹ️ Por defecto: 100 si acierta, 0 si falla. El bonus de velocidad solo aplica en modo En vivo.
+              </p>
+            </div>
+            )}
+
+            {/* === Panel desplegable: MULTIMEDIA (imagen + video) === */}
+            <div style={{ marginTop: 12 }}>
+              <button onClick={() => setShowMedia(v => !v)}
+                className="qs-btn qs-btn--ghost qs-btn--sm"
+                style={{ width: "100%", justifyContent: "space-between" }}>
+                <span>🖼️ Multimedia {(active.image || active.video) ? "✓" : "(opcional)"}</span>
+                <span>{showMedia ? "▲" : "▼"}</span>
+              </button>
+              {showMedia && (
+                <div style={{ padding: "14px 4px 4px" }}>
+                  {/* Imagen */}
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ink-700)", marginBottom: 6 }}>🖼️ Imagen (enlace directo)</div>
+                  <input className="qs-input"
+                    placeholder="Enlace directo de la imagen (.jpg, .png, .webp...)"
+                    value={active.image || ""}
+                    onChange={e => updateQuestion({ image: e.target.value.trim() })}/>
+                  {active.image && (
+                    <div style={{ marginTop: 10 }}>
+                      <img src={active.image} alt="Vista previa"
+                        onError={(e) => { e.currentTarget.style.display = "none"; e.currentTarget.nextSibling.style.display = "block"; }}
+                        onLoad={(e) => { e.currentTarget.style.display = "block"; e.currentTarget.nextSibling.style.display = "none"; }}
+                        style={{ maxWidth: "100%", maxHeight: 200, borderRadius: 12, border: "1px solid var(--ink-200)", display: "block" }}/>
+                      <div style={{ display: "none", padding: 12, borderRadius: 10, background: "#fef3c7", color: "#92400e", fontSize: 13 }}>
+                        ⚠️ No se pudo cargar la imagen. Verifica que el enlace sea directo y público.
+                      </div>
+                    </div>
+                  )}
+                  {/* Video YouTube */}
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ink-700)", marginTop: 16, marginBottom: 6 }}>▶️ Video de YouTube</div>
+                  <input className="qs-input"
+                    placeholder="Pega el enlace de YouTube (https://www.youtube.com/watch?v=...)"
+                    value={active.video || ""}
+                    onChange={e => updateQuestion({ video: e.target.value.trim() })}/>
+                  {active.video && (() => {
+                    const vid = youtubeId(active.video);
+                    return vid ? (
+                      <div style={{ marginTop: 10, position: "relative", paddingBottom: "56.25%", height: 0, borderRadius: 12, overflow: "hidden" }}>
+                        <iframe src={`https://www.youtube.com/embed/${vid}`} title="Vista previa"
+                          style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", border: 0 }}
+                          allowFullScreen/>
+                      </div>
+                    ) : (
+                      <div style={{ marginTop: 10, padding: 12, borderRadius: 10, background: "#fef3c7", color: "#92400e", fontSize: 13 }}>
+                        ⚠️ No reconozco ese enlace de YouTube. Debe ser como https://www.youtube.com/watch?v=XXXX o https://youtu.be/XXXX
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+            </div>
+
+            {/* === Panel desplegable: CORRECCIÓN (retro + modo de calificación) === */}
+            <div style={{ marginTop: 8 }}>
+              <button onClick={() => setShowCorrection(v => !v)}
+                className="qs-btn qs-btn--ghost qs-btn--sm"
+                style={{ width: "100%", justifyContent: "space-between" }}>
+                <span>💬 Corrección y retroalimentación {active.feedback ? "✓" : "(opcional)"}</span>
+                <span>{showCorrection ? "▲" : "▼"}</span>
+              </button>
+              {showCorrection && (
+                <div style={{ padding: "14px 4px 4px" }}>
+                  {/* Modo de calificación: solo para respuesta abierta en modo quiz */}
+                  {active.type === "text" && quiz.mode !== "survey" && (
+                    <div style={{ marginBottom: 16 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ink-700)", marginBottom: 8 }}>
+                        ¿Cómo calificar esta respuesta abierta?
+                      </div>
+                      <div style={{ display: "grid", gap: 8 }}>
+                        {[
+                          { id: "live", title: "✍️ Calificar en vivo", desc: "Marcas correcto/parcial/incorrecto a cada estudiante antes de pasar." },
+                          { id: "end",  title: "📋 Solo recoger respuestas", desc: "No se asigna nota automática; solo verás las respuestas." },
+                        ].map(opt => {
+                          const on = (active.gradeMode || "live") === opt.id;
+                          return (
+                            <button key={opt.id} onClick={() => updateQuestion({ gradeMode: opt.id })}
+                              style={{
+                                textAlign: "left", padding: "10px 14px", borderRadius: 12,
+                                border: on ? "2px solid var(--violet-500)" : "1px solid var(--ink-200)",
+                                background: on ? "var(--violet-50)" : "var(--white)", cursor: "pointer",
+                              }}>
+                              <div style={{ fontWeight: 700, fontSize: 14, color: on ? "var(--violet-700)" : "var(--ink-900)" }}>{opt.title}</div>
+                              <div style={{ fontSize: 12, color: "var(--ink-500)", marginTop: 2 }}>{opt.desc}</div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                  {/* Retroalimentación */}
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ink-700)", marginBottom: 6 }}>💬 Retroalimentación</div>
+                  <textarea value={active.feedback || ""}
+                    onChange={e => updateQuestion({ feedback: e.target.value })}
+                    placeholder="Explica por qué esta es la respuesta. Se mostrará al estudiante al revelar."
+                    style={{ width: "100%", border: "1px solid var(--ink-200)", borderRadius: 10, padding: "10px 14px", fontSize: 14, fontFamily: "inherit", resize: "vertical", outline: "none", minHeight: 60, color: "var(--ink-900)" }}/>
+                  <div style={{ fontSize: 12, color: "var(--ink-500)", marginTop: 6 }}>
+                    Si lo dejas vacío, no se muestra nada.
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </main>
