@@ -32,7 +32,7 @@ function TopNav({ active, onNav, onLaunch, user, onLogout, onAdmin }) {
         </button>
         <nav style={{ display: "flex", gap: 4 }}>
           {[
-            { id: "dashboard", label: "Mis quizzes" },
+            { id: "dashboard", label: "Mis quices" },
             { id: "results",   label: "Resultados" },
             { id: "library",   label: "Biblioteca" },
           ].map(item => (
@@ -231,7 +231,7 @@ function Dashboard({ onOpenEditor, onLaunch, onResults }) {
             }} style={{
               background: "rgba(255,255,255,.18)", color: "#fff", boxShadow: "0 0 0 2px rgba(255,255,255,.4) inset",
             }}>
-              <I.play size={16} /> Sala con último quiz
+              <I.play size={16} /> Sala con último Quiz
             </button>
           </div>
         </div>
@@ -245,7 +245,7 @@ function Dashboard({ onOpenEditor, onLaunch, onResults }) {
       {/* Stats */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 16, marginBottom: 32 }}>
         {[
-          { label: "Quizzes creados", value: quizzes.length, icon: "list", c: "var(--violet-500)" },
+          { label: "Quices creados", value: quizzes.length, icon: "list", c: "var(--violet-500)" },
           { label: "Sesiones jugadas", value: quizzes.reduce((s, q) => s + (q.plays || 0), 0), icon: "play", c: "var(--pink-500)" },
           { label: "Total de preguntas", value: quizzes.reduce((s, q) => s + (q.qs || 0), 0), icon: "users", c: "var(--amber-500)" },
           { label: "Tu rol", value: (window.QS.currentUserData?.role === "admin" ? "Admin" : "Profesor"), icon: "star", c: "var(--emerald-500)" },
@@ -275,7 +275,7 @@ function Dashboard({ onOpenEditor, onLaunch, onResults }) {
             background: "var(--white)", borderRadius: 999, border: "1px solid var(--ink-200)",
           }}>
             <I.search size={16} stroke="var(--ink-400)" />
-            <input placeholder="Buscar quiz..." style={{ border: 0, outline: 0, width: 180, background: "transparent" }} />
+            <input placeholder="Buscar Quiz..." style={{ border: 0, outline: 0, width: 180, background: "transparent" }} />
           </div>
         </div>
       </div>
