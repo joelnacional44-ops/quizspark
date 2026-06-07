@@ -560,6 +560,18 @@ function Editor({ quizId, onBack, onLaunch }) {
     setActiveIdx(Math.max(0, idx - 1));
   };
 
+  // Mover una pregunta una posición arriba (dir=-1) o abajo (dir=+1)
+  const moveQuestion = (idx, dir) => {
+    const newIdx = idx + dir;
+    if (newIdx < 0 || newIdx >= quiz.questions.length) return;
+    const next = [...quiz.questions];
+    [next[idx], next[newIdx]] = [next[newIdx], next[idx]];
+    setQuiz(qz => ({ ...qz, questions: next }));
+    // Mantener seleccionada la pregunta que el usuario movió
+    if (activeIdx === idx) setActiveIdx(newIdx);
+    else if (activeIdx === newIdx) setActiveIdx(idx);
+  };
+
   return (
     <div className="qs-editor-root" style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 73px)" }}>
       {/* Editor toolbar */}
@@ -651,7 +663,27 @@ function Editor({ quizId, onBack, onLaunch }) {
                       <Tico size={12} /> {t?.label}
                     </div>
                   </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2 }}>
+                    <button onClick={(e) => { e.stopPropagation(); moveQuestion(i, -1); }}
+                      disabled={i === 0} title="Subir"
+                      style={{
+                        width: 24, height: 24, borderRadius: 6,
+                        color: i === 0 ? "var(--ink-300)" : "var(--ink-700)",
+                        background: "transparent", border: "none",
+                        cursor: i === 0 ? "default" : "pointer",
+                        display: "inline-flex", alignItems: "center", justifyContent: "center",
+                        padding: 0, fontWeight: 800, fontSize: 14,
+                      }}>↑</button>
+                    <button onClick={(e) => { e.stopPropagation(); moveQuestion(i, 1); }}
+                      disabled={i === quiz.questions.length - 1} title="Bajar"
+                      style={{
+                        width: 24, height: 24, borderRadius: 6,
+                        color: i === quiz.questions.length - 1 ? "var(--ink-300)" : "var(--ink-700)",
+                        background: "transparent", border: "none",
+                        cursor: i === quiz.questions.length - 1 ? "default" : "pointer",
+                        display: "inline-flex", alignItems: "center", justifyContent: "center",
+                        padding: 0, fontWeight: 800, fontSize: 14,
+                      }}>↓</button>
                     <button onClick={(e) => { e.stopPropagation(); duplicateQuestion(i); }} title="Duplicar"
                       style={{
                         width: 24, height: 24, borderRadius: 6, color: "var(--ink-500)",
