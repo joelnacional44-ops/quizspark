@@ -50,7 +50,7 @@ function AuthShell({ children }) {
         </div>
       </div>
       <div style={{ textAlign: "center", color: "rgba(255,255,255,0.85)", fontSize: 12, marginTop: 20, fontWeight: 500 }}>
-        Creado por: Andersson Cortes y Res Cogitas · 2026 · Hecho en Bogotá
+        Creado por: Andersson Cortes y Res Cogitans · 2026 · Hecho en Bogotá
       </div>
     </div>
   );
