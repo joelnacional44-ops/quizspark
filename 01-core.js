@@ -21,7 +21,7 @@ const I = {
   x:        (p)=> <Icon d="M6 6l12 12M18 6L6 18" {...p}/>,
   trash:    (p)=> <Icon {...p}><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14"/></Icon>,
   bookCopy: (p)=> <Icon {...p}><path d="M5 7a2 2 0 0 0-2 2v11"/><path d="M5.803 18H5a2 2 0 0 0 0 4h9.5a.5.5 0 0 0 .5-.5V21"/><path d="M9 15V4a2 2 0 0 1 2-2h9.5a.5.5 0 0 1 .5.5v14a.5.5 0 0 1-.5.5H11a2 2 0 0 1 0-4h10"/></Icon>,
-  edit:     (p)=> <Icon d="M5.803 18H5a2 2 0 0 0 0 4h9.5a.5.5 0 0 0 .5-.5V21"/>,
+  edit:     (p)=> <Icon d="M4 20h4l10-10-4-4L4 16zM14 6l4 4" {...p}/>,
   arrowR:   (p)=> <Icon d="M5 12h14M13 6l6 6-6 6" {...p}/>,
   arrowL:   (p)=> <Icon d="M19 12H5M11 6l-6 6 6 6" {...p}/>,
   download: (p)=> <Icon d="M12 4v12M6 12l6 6 6-6M4 21h16" {...p}/>,
