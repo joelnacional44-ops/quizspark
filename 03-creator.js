@@ -361,7 +361,7 @@ function Dashboard({ onOpenEditor, onLaunch, onResults }) {
                   <I.edit size={14}/> Editar
                 </button>
                 <button onClick={() => duplicateQuiz(q.id)} className="qs-btn qs-btn--ghost qs-btn--sm" title="Duplicar quiz">
-                  <I.copy size={14}/>
+                  <I.bookCopy size={14}/>
                 </button>
                 <button onClick={() => onLaunch(q.id)} className="qs-btn qs-btn--primary qs-btn--sm" style={{ flex: 1 }}>
                   🎮 En vivo 
