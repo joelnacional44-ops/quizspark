@@ -7,16 +7,41 @@ const { useState: useStateC, useEffect: useEffectC, useRef: useRefC } = React;
 // =================== TOP NAV ===================
 function TopNav({ active, onNav, onLaunch, user, onLogout, onAdmin }) {
   const [showMenu, setShowMenu] = useStateC(false);
+  const [showThemes, setShowThemes] = useStateC(false);
+  const [showMobileNav, setShowMobileNav] = useStateC(false);
+  // Tema actual: lo leemos del userData global (se carga al iniciar sesión)
+  const currentTheme = (window.QS.currentUserData && window.QS.currentUserData.theme) || "default";
   const initial = (user?.name || user?.email || "?").charAt(0).toUpperCase();
 
+  // Cambia el tema: aplica visualmente al instante y guarda en Firestore
+  const changeTheme = async (themeId) => {
+    applyTheme(themeId);
+    // Actualizar también la copia global para que otros sitios lo lean
+    if (window.QS.currentUserData) window.QS.currentUserData.theme = themeId;
+    try {
+      const uid = window.QS.currentUser?.uid;
+      if (uid) await window.QS.db.collection("users").doc(uid).update({ theme: themeId });
+    } catch (err) {
+      console.error("Error guardando tema:", err);
+    }
+  };
+
+  const navItems = [
+    { id: "dashboard", label: "Mis quices" },
+    { id: "results",   label: "Resultados" },
+    { id: "library",   label: "Biblioteca" },
+  ];
+
   return (
-    <header style={{
+    <header className="qs-topnav" style={{
       display: "flex", alignItems: "center", justifyContent: "space-between",
       padding: "16px 32px", background: "var(--white)",
       borderBottom: "1px solid var(--ink-200)", position: "sticky", top: 0, zIndex: 50,
     }}>
       <div style={{ display: "flex", alignItems: "center", gap: 28 }}>
-        <button onClick={() => onNav("dashboard")} style={{
+        <button onClick={() => onNav("dashboard")}
+          className="qs-topnav-logo"
+          style={{
           display: "flex", alignItems: "center", gap: 10, fontFamily: "var(--font-display)",
           fontWeight: 800, fontSize: 22, color: "var(--violet-700)",
           background: "transparent", border: "none", cursor: "pointer", padding: 0,
@@ -30,12 +55,8 @@ function TopNav({ active, onNav, onLaunch, user, onLogout, onAdmin }) {
           </span>
           QuizSpark
         </button>
-        <nav style={{ display: "flex", gap: 4 }}>
-          {[
-            { id: "dashboard", label: "Mis quices" },
-            { id: "results",   label: "Resultados" },
-            { id: "library",   label: "Biblioteca" },
-          ].map(item => (
+        <nav className="qs-nav-desktop" style={{ gap: 4 }}>
+          {navItems.map(item => (
             <button key={item.id} onClick={() => onNav(item.id)} style={{
               padding: "8px 14px", borderRadius: 999,
               background: active === item.id ? "var(--violet-100)" : "transparent",
@@ -47,12 +68,30 @@ function TopNav({ active, onNav, onLaunch, user, onLogout, onAdmin }) {
         </nav>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 12, position: "relative" }}>
-        <button className="qs-btn qs-btn--ghost qs-btn--sm" onClick={() => onNav("join")}>
+        <button className="qs-btn qs-btn--ghost qs-btn--sm qs-join-desktop" onClick={() => onNav("join")}>
           <I.users size={16} /> Unirme a un quiz
         </button>
-        <button className="qs-btn qs-btn--primary" onClick={onLaunch}>
+        <button className="qs-btn qs-btn--primary qs-join-desktop" onClick={onLaunch}>
           <I.play size={16} /> Iniciar sesión
         </button>
+
+        {/* Botón hamburguesa (solo celular) */}
+        <button
+          className="qs-nav-hamburger"
+          onClick={() => setShowMobileNav(v => !v)}
+          style={{
+            width: 38, height: 38, borderRadius: 10,
+            background: "var(--ink-50)", border: "1px solid var(--ink-200)",
+            cursor: "pointer", alignItems: "center", justifyContent: "center",
+            flexDirection: "column", gap: 4,
+          }}
+          title="Menú"
+        >
+          <span style={{ width: 18, height: 2, background: "var(--ink-700)", borderRadius: 2 }}/>
+          <span style={{ width: 18, height: 2, background: "var(--ink-700)", borderRadius: 2 }}/>
+          <span style={{ width: 18, height: 2, background: "var(--ink-700)", borderRadius: 2 }}/>
+        </button>
+
         <button
           onClick={() => setShowMenu(!showMenu)}
           style={{
@@ -64,6 +103,46 @@ function TopNav({ active, onNav, onLaunch, user, onLogout, onAdmin }) {
           }}
           title={user?.name || user?.email}
         >{initial}</button>
+
+        {/* Panel del menú móvil (hamburguesa) */}
+        {showMobileNav && (
+          <>
+            <div onClick={() => setShowMobileNav(false)}
+              style={{ position: "fixed", inset: 0, zIndex: 60 }}/>
+            <div style={{
+              position: "absolute", top: "100%", right: 0, marginTop: 8,
+              background: "var(--white)", border: "1px solid var(--ink-200)",
+              borderRadius: 12, padding: 8, minWidth: 220, zIndex: 70,
+              boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
+            }}>
+              {navItems.map(item => (
+                <button key={item.id}
+                  onClick={() => { setShowMobileNav(false); onNav(item.id); }}
+                  style={{
+                    width: "100%", textAlign: "left", padding: "10px 12px", borderRadius: 8,
+                    background: active === item.id ? "var(--violet-50)" : "transparent",
+                    color: active === item.id ? "var(--violet-700)" : "var(--ink-700)",
+                    border: "none", cursor: "pointer", fontSize: 14, fontWeight: 700,
+                    marginBottom: 2, display: "block",
+                  }}>{item.label}</button>
+              ))}
+              <div style={{ height: 1, background: "var(--ink-100)", margin: "6px 4px" }}/>
+              <button onClick={() => { setShowMobileNav(false); onNav("join"); }}
+                style={{
+                  width: "100%", textAlign: "left", padding: "10px 12px", borderRadius: 8,
+                  background: "transparent", color: "var(--ink-700)",
+                  border: "none", cursor: "pointer", fontSize: 14, fontWeight: 600,
+                }}>👥 Unirme a un quiz</button>
+              <button onClick={() => { setShowMobileNav(false); onLaunch(); }}
+                style={{
+                  width: "100%", textAlign: "left", padding: "10px 12px", borderRadius: 8,
+                  background: "var(--violet-600)", color: "white",
+                  border: "none", cursor: "pointer", fontSize: 14, fontWeight: 700,
+                  marginTop: 4,
+                }}>▶ Iniciar sesión</button>
+            </div>
+          </>
+        )}
 
         {showMenu && (
           <>
@@ -93,6 +172,43 @@ function TopNav({ active, onNav, onLaunch, user, onLogout, onAdmin }) {
                     color: "var(--violet-700)", fontWeight: 600,
                   }}
                 >🛡️ Panel de administración</button>
+              )}
+              <button
+                onClick={() => setShowThemes(v => !v)}
+                style={{
+                  width: "100%", textAlign: "left", padding: "10px 12px", borderRadius: 8,
+                  background: "transparent", border: "none", cursor: "pointer", fontSize: 14,
+                  color: "var(--ink-700)", fontWeight: 600,
+                  display: "flex", justifyContent: "space-between", alignItems: "center",
+                }}
+              >
+                <span>🎨 Tema de color</span>
+                <span>{showThemes ? "▲" : "▼"}</span>
+              </button>
+              {showThemes && (
+                <div style={{ padding: "6px 8px 8px" }}>
+                  {(window.THEMES || []).map(t => {
+                    const active = currentTheme === t.id;
+                    return (
+                      <button key={t.id} onClick={() => changeTheme(t.id)}
+                        style={{
+                          width: "100%", display: "flex", alignItems: "center", gap: 10,
+                          padding: "8px 10px", borderRadius: 8, marginBottom: 4,
+                          background: active ? "var(--violet-50)" : "transparent",
+                          border: active ? "1px solid var(--violet-200)" : "1px solid transparent",
+                          cursor: "pointer", fontSize: 13, fontWeight: 600, color: "var(--ink-700)",
+                        }}>
+                        <span style={{
+                          width: 22, height: 22, borderRadius: "50%", background: t.swatch,
+                          border: "2px solid var(--white)", boxShadow: "0 0 0 1px var(--ink-200)",
+                          flexShrink: 0,
+                        }}/>
+                        <span style={{ flex: 1, textAlign: "left" }}>{t.label}</span>
+                        {active && <span style={{ color: "var(--violet-600)", fontSize: 14 }}>✓</span>}
+                      </button>
+                    );
+                  })}
+                </div>
               )}
               <button
                 onClick={() => { setShowMenu(false); onLogout(); }}
@@ -1158,17 +1274,6 @@ function Editor({ quizId, onBack, onLaunch }) {
                   </button>
                 );
               })}
-            </div>
-          </Field>
-
-          <Field label="Exportar respuestas">
-            <button className="qs-btn qs-btn--ghost qs-btn--sm" style={{ width: "100%", justifyContent: "flex-start" }}>
-              <I.sheets size={16} stroke="var(--emerald-600)"/>
-              <span style={{ flex: 1, textAlign: "left" }}>Conectado a Google Sheets</span>
-              <span style={{ width: 8, height: 8, background: "var(--emerald-500)", borderRadius: "50%" }}></span>
-            </button>
-            <div style={{ marginTop: 6, fontSize: 11, color: "var(--ink-500)", lineHeight: 1.4 }}>
-              Cada respuesta se añade automáticamente a tu hoja vinculada en tiempo real.
             </div>
           </Field>
 
