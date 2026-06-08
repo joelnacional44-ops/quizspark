@@ -43,7 +43,7 @@ function AuthShell({ children }) {
               color: "var(--violet-700)", marginBottom: 4
             }}>QuizSpark</h1>
             <p style={{ color: "var(--ink-500)", fontSize: 14 }}>
-              Plataforma educativa de quizzes
+              Plataforma Educativa de Quices en Vivo 
             </p>
           </div>
           {children}
