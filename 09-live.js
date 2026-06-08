@@ -264,7 +264,7 @@ function HostLobby({ session, quiz, onStart, onCancel, onKick }) {
           </button>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(280px, 1fr) 2fr", gap: 24, alignItems: "start" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 24, alignItems: "start" }}>
           {/* Izquierda: código + URL */}
           <div className="qs-card" style={{ padding: 28, textAlign: "center" }}>
             <p style={{ fontSize: 13, color: "var(--ink-500)", marginBottom: 8, fontWeight: 600 }}>
