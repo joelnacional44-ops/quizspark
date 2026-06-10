@@ -7,24 +7,8 @@ const { useState: useStateC, useEffect: useEffectC, useRef: useRefC } = React;
 // =================== TOP NAV ===================
 function TopNav({ active, onNav, onLaunch, user, onLogout, onAdmin }) {
   const [showMenu, setShowMenu] = useStateC(false);
-  const [showThemes, setShowThemes] = useStateC(false);
   const [showMobileNav, setShowMobileNav] = useStateC(false);
-  // Tema actual: lo leemos del userData global (se carga al iniciar sesión)
-  const currentTheme = (window.QS.currentUserData && window.QS.currentUserData.theme) || "default";
   const initial = (user?.name || user?.email || "?").charAt(0).toUpperCase();
-
-  // Cambia el tema: aplica visualmente al instante y guarda en Firestore
-  const changeTheme = async (themeId) => {
-    applyTheme(themeId);
-    // Actualizar también la copia global para que otros sitios lo lean
-    if (window.QS.currentUserData) window.QS.currentUserData.theme = themeId;
-    try {
-      const uid = window.QS.currentUser?.uid;
-      if (uid) await window.QS.db.collection("users").doc(uid).update({ theme: themeId });
-    } catch (err) {
-      console.error("Error guardando tema:", err);
-    }
-  };
 
   const navItems = [
     { id: "dashboard", label: "Mis quices" },
@@ -172,43 +156,6 @@ function TopNav({ active, onNav, onLaunch, user, onLogout, onAdmin }) {
                     color: "var(--violet-700)", fontWeight: 600,
                   }}
                 >🛡️ Panel de administración</button>
-              )}
-              <button
-                onClick={() => setShowThemes(v => !v)}
-                style={{
-                  width: "100%", textAlign: "left", padding: "10px 12px", borderRadius: 8,
-                  background: "transparent", border: "none", cursor: "pointer", fontSize: 14,
-                  color: "var(--ink-700)", fontWeight: 600,
-                  display: "flex", justifyContent: "space-between", alignItems: "center",
-                }}
-              >
-                <span>🎨 Tema de color</span>
-                <span>{showThemes ? "▲" : "▼"}</span>
-              </button>
-              {showThemes && (
-                <div style={{ padding: "6px 8px 8px" }}>
-                  {(window.THEMES || []).map(t => {
-                    const active = currentTheme === t.id;
-                    return (
-                      <button key={t.id} onClick={() => changeTheme(t.id)}
-                        style={{
-                          width: "100%", display: "flex", alignItems: "center", gap: 10,
-                          padding: "8px 10px", borderRadius: 8, marginBottom: 4,
-                          background: active ? "var(--violet-50)" : "transparent",
-                          border: active ? "1px solid var(--violet-200)" : "1px solid transparent",
-                          cursor: "pointer", fontSize: 13, fontWeight: 600, color: "var(--ink-700)",
-                        }}>
-                        <span style={{
-                          width: 22, height: 22, borderRadius: "50%", background: t.swatch,
-                          border: "2px solid var(--white)", boxShadow: "0 0 0 1px var(--ink-200)",
-                          flexShrink: 0,
-                        }}/>
-                        <span style={{ flex: 1, textAlign: "left" }}>{t.label}</span>
-                        {active && <span style={{ color: "var(--violet-600)", fontSize: 14 }}>✓</span>}
-                      </button>
-                    );
-                  })}
-                </div>
               )}
               <button
                 onClick={() => { setShowMenu(false); onLogout(); }}
@@ -1124,12 +1071,12 @@ function Editor({ quizId, onBack, onLaunch }) {
               </div>
             ) : (
               <div className="qs-options-grid" style={{ display: "grid", gap: 10,
-                gridTemplateColumns: active.type === "truefalse" ? "1fr 1fr" : "1fr 1fr" }}>
+                gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)" }}>
                 {active.options.map((o, i) => (
                   <div key={o.id} style={{
                     display: "flex", alignItems: "center", gap: 10, padding: "12px 14px",
                     borderRadius: 14, background: tileColor(i), color: "#fff",
-                    boxShadow: "var(--shadow-tile)",
+                    boxShadow: "var(--shadow-tile)", minWidth: 0, overflow: "hidden",
                   }}>
                     <div style={{ fontSize: 22, opacity: .85, width: 24, textAlign: "center" }}>{tileShape(i)}</div>
                     <input value={o.text}
@@ -1145,14 +1092,13 @@ function Editor({ quizId, onBack, onLaunch }) {
                       <button onClick={() => updateOption(o.id, { correct: !o.correct })}
                         title={o.correct ? "Correcta ✓ (clic para desmarcar)" : "Marcar como correcta"}
                         style={{
-                          width: 34, height: 34, borderRadius: "50%", cursor: "pointer",
+                          width: 30, height: 30, borderRadius: "50%", cursor: "pointer",
                           border: o.correct ? "2px solid #fff" : "2px dashed rgba(255,255,255,.65)",
                           background: o.correct ? "#fff" : "transparent",
                           color: o.correct ? "var(--emerald-600)" : "rgba(255,255,255,.55)",
                           display: "grid", placeItems: "center", flexShrink: 0,
                           boxShadow: o.correct ? "0 2px 8px rgba(0,0,0,.28)" : "none",
-                          transform: o.correct ? "scale(1.06)" : "scale(1)",
-                          transition: "transform .12s ease, background .15s ease, border .15s ease",
+                          transition: "background .15s ease, border .15s ease",
                         }}>
                         <I.check size={18} sw={3}/>
                       </button>
@@ -1214,6 +1160,44 @@ function Editor({ quizId, onBack, onLaunch }) {
         {/* Right: settings panel */}
         <aside className="qs-editor-config">
           <h3 style={{ fontSize: 15, marginBottom: 14 }}>Configuración del Quiz</h3>
+
+          <Field label="Carátula del quiz">
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+              {["🌎","📚","🧠","⚖️","🏛️","🕊️","✊","📜","🗳️","⚔️","🎭","🔬","🧮","💡","🎨","🏆"].map(em => (
+                <button key={em} onClick={() => setQuiz(q => ({ ...q, cover: em }))}
+                  title="Emoji de la carátula"
+                  style={{
+                    width: 38, height: 38, borderRadius: 10, fontSize: 19, cursor: "pointer",
+                    background: (quiz.cover || "🌎") === em ? "var(--violet-100)" : "var(--ink-50)",
+                    border: (quiz.cover || "🌎") === em ? "2px solid var(--violet-500)" : "1px solid var(--ink-200)",
+                    display: "grid", placeItems: "center", padding: 0,
+                  }}>{em}</button>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              {["var(--violet-500)","var(--emerald-500)","var(--sky-500)","var(--amber-500)","var(--pink-500)","var(--red-500)"].map(col => (
+                <button key={col} onClick={() => setQuiz(q => ({ ...q, color: col }))}
+                  title="Color de la tarjeta"
+                  style={{
+                    width: 26, height: 26, borderRadius: "50%", background: col, cursor: "pointer",
+                    border: "2px solid #fff", padding: 0,
+                    boxShadow: (quiz.color || "var(--violet-500)") === col
+                      ? "0 0 0 3px var(--violet-400)" : "0 0 0 1px var(--ink-200)",
+                  }}/>
+              ))}
+            </div>
+            <div style={{
+              marginTop: 10, borderRadius: 12, overflow: "hidden", border: "1px solid var(--ink-200)",
+            }}>
+              <div style={{
+                height: 64, background: quiz.color || "var(--violet-500)",
+                display: "grid", placeItems: "center", fontSize: 32,
+              }}>{quiz.cover || "🌎"}</div>
+              <div style={{ padding: "6px 10px", fontSize: 12, fontWeight: 700, background: "var(--white)" }}>
+                {quiz.title || "Nuevo quiz"}
+              </div>
+            </div>
+          </Field>
 
           <Field label="Tipo de actividad">
             <div style={{ display: "flex", gap: 6 }}>

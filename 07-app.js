@@ -46,8 +46,8 @@ function App() {
             setUserData(data);
             window.QS.currentUser = fbUser;
             window.QS.currentUserData = data;
-            // Aplicar el tema guardado del usuario
-            applyTheme(data.theme || "default");
+            // Temas de color retirados: siempre el tema base
+            applyTheme("default");
           } else {
             await window.QS.auth.signOut();
             setUser(null);
