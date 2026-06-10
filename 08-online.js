@@ -988,6 +988,7 @@ function baseUrlNoQuery() {
 
 // =================== ONLINE RESULTS PANEL ===================
 function OnlineResultsPanel({ onBack }) {
+  const [showLiveHistory, setShowLiveHistory] = useStateO(false);
   const [quizzes, setQuizzes] = useStateO([]);
   const [selectedQuizId, setSelectedQuizId] = useStateO(null);
   const [submissions, setSubmissions] = useStateO([]);
@@ -1139,6 +1140,11 @@ function OnlineResultsPanel({ onBack }) {
     );
   }
 
+  // Sub-vista: historial de sesiones en vivo (componente de 09-live.js)
+  if (showLiveHistory && window.QS.LiveHistoryPanel) {
+    return <window.QS.LiveHistoryPanel onBack={() => setShowLiveHistory(false)} />;
+  }
+
   return (
     <div style={{ maxWidth: 1200, margin: "0 auto", padding: 32 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
@@ -1146,7 +1152,12 @@ function OnlineResultsPanel({ onBack }) {
           <h1 style={{ fontSize: 28, marginBottom: 4 }}>📊 Resultados online</h1>
           <p style={{ color: "var(--ink-500)" }}>Respuestas de estudiantes a tus evaluaciones publicadas</p>
         </div>
-        <button onClick={onBack} className="qs-btn qs-btn--ghost">← Volver</button>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button onClick={() => setShowLiveHistory(true)} className="qs-btn qs-btn--primary">
+            🔴 Sesiones en vivo
+          </button>
+          <button onClick={onBack} className="qs-btn qs-btn--ghost">← Volver</button>
+        </div>
       </div>
 
       {quizzes.length === 0 ? (

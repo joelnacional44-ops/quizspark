@@ -1548,6 +1548,7 @@ function LiveSessionHost({ quizId, onExit }) {
       await saveLiveResults();
     } catch (err) {
       console.error("Error guardando resultados:", err);
+      alert("⚠️ Los resultados no se pudieron archivar automáticamente: " + err.message + "\\n\\nNo se perdieron: podrás reenviarlos desde Resultados → Sesiones en vivo.");
     }
     await ref.update({
       status: "finished",
@@ -1634,7 +1635,7 @@ function LiveSessionHost({ quizId, onExit }) {
         await saveLiveResults();
       } catch (err) {
         console.error("Error guardando resultados:", err);
-        // No bloqueamos la finalización aunque falle el guardado
+        alert("⚠️ Los resultados no se pudieron archivar automáticamente: " + err.message + "\\n\\nNo se perdieron: podrás reenviarlos desde Resultados → Sesiones en vivo.");
       }
       await window.QS.db.collection("liveSessions").doc(sessionIdRef.current).update({
         status: "finished",
@@ -2767,5 +2768,228 @@ function OrderSelector({ items, onSubmit }) {
 }
 
 // Exponer globalmente
+
+// ============================================================
+// LIVE HISTORY PANEL — historial de sesiones en vivo.
+// Las respuestas y puntajes de cada sala quedan guardados en
+// Firestore desde el momento en que los estudiantes responden;
+// este panel permite verlos y (re)enviarlos al panel de
+// Resultados aunque la sala no se haya finalizado bien.
+// ============================================================
+function LiveHistoryPanel({ onBack }) {
+  const [sessions, setSessions] = useStateL([]);
+  const [loadingH, setLoadingH] = useStateL(true);
+  const [openId, setOpenId] = useStateL(null);
+  const [busyId, setBusyId] = useStateL(null);
+
+  useEffectL(() => {
+    const load = async () => {
+      try {
+        const uid = window.QS.currentUser?.uid;
+        if (!uid) return;
+        const snap = await window.QS.db.collection("liveSessions")
+          .where("ownerId", "==", uid).get();
+        const list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+        setSessions(list);
+      } catch (err) {
+        console.error("Error cargando sesiones:", err);
+        alert("Error cargando el historial: " + err.message);
+      }
+      setLoadingH(false);
+    };
+    load();
+  }, []);
+
+  const STATUS_LABEL = {
+    finished:  { txt: "Finalizada",        bg: "var(--emerald-500)" },
+    playing:   { txt: "Quedó abierta",     bg: "var(--amber-500)" },
+    lobby:     { txt: "Solo lobby",        bg: "var(--ink-400)" },
+    cancelled: { txt: "Cancelada",         bg: "var(--red-500)" },
+  };
+
+  // Reconstruye los resultados de una sesión y los envía al panel de
+  // Resultados (misma lógica que al finalizar una sala, pero a demanda).
+  const rebuildResults = async (s) => {
+    const nParticipants = Object.keys(s.participants || {}).length;
+    if (!confirm(`¿Enviar los resultados de "${s.quizTitle}" (sala ${s.code}, ${nParticipants} participantes) al panel de Resultados?\n\nSi ya existían resultados de esta misma sala, se reemplazan.`)) return;
+    setBusyId(s.id);
+    try {
+      const uid = window.QS.currentUser?.uid;
+      if (!uid) throw new Error("No hay sesión activa");
+      const quizDoc = await window.QS.db.collection("quizzes").doc(s.quizId).get();
+      if (!quizDoc.exists) throw new Error("El quiz de esta sesión ya no existe, no es posible calificar.");
+      const quiz = { id: quizDoc.id, ...quizDoc.data() };
+      if (quiz.mode === "survey") throw new Error("Las encuestas no generan calificaciones.");
+      const participants = Object.values(s.participants || {});
+      if (participants.length === 0) throw new Error("Esta sesión no tuvo participantes.");
+
+      // Respuestas crudas de la sala
+      const answersSnap = await window.QS.db.collection("liveSessions")
+        .doc(s.id).collection("answers").get();
+      const answersByParticipant = {};
+      answersSnap.docs.forEach(d => {
+        const a = d.data();
+        if (!answersByParticipant[a.participantId]) answersByParticipant[a.participantId] = [];
+        answersByParticipant[a.participantId].push(a);
+      });
+
+      // Evitar duplicados: borrar resultados previos de esta misma sala
+      const prev = await window.QS.db.collection("results")
+        .where("ownerId", "==", uid)
+        .where("quizId", "==", s.quizId)
+        .where("sessionCode", "==", s.code).get();
+
+      const maxPoints = calculateMaxPoints(quiz);
+      const today = new Date(s.createdAt || Date.now()).toISOString().slice(0, 10);
+      const batch = window.QS.db.batch();
+      prev.docs.forEach(d => batch.delete(d.ref));
+
+      for (const p of participants) {
+        const myAnswers = answersByParticipant[p.id] || [];
+        const correctCount = myAnswers.filter(a => a.correct).length;
+        const score = myAnswers.reduce((sum, a) => sum + (a.points || 0), 0);
+        const grade = convertToGrade(score, maxPoints, quiz.gradingScale);
+        const gradeDetail = quiz.questions
+          .filter(q => q.type !== "slide")
+          .map((q) => {
+            const realIdx = quiz.questions.findIndex(qq => qq.id === q.id);
+            const ans = myAnswers.find(a => a.questionIdx === realIdx);
+            const accepted = (q.acceptedAnswers || []).map(a => String(a).toLowerCase().trim()).filter(Boolean);
+            const needsReview = q.type === "text" && accepted.length === 0;
+            return {
+              qid: q.id,
+              type: q.type,
+              userAnswer: ans?.answer ?? null,
+              correct: ans?.correct ?? false,
+              points: ans?.points ?? 0,
+              pointsMax: (q.pointsCorrect ?? 100) + (q.pointsSpeedBonus ?? 0),
+              needsReview,
+              reviewed: false,
+            };
+          });
+
+        const resultData = {
+          quizId: quiz.id,
+          quizTitle: quiz.title || "Quiz",
+          ownerId: uid,
+          studentName: p.name || "Sin nombre",
+          studentCourse: p.course || "Sin curso",
+          examDate: today,
+          mode: "live",
+          sessionCode: s.code,
+          answers: {},
+          gradeDetail,
+          correct: correctCount,
+          total: quiz.questions.filter(q => q.type !== "slide").length,
+          score: grade,
+          percent: maxPoints > 0 ? Math.round((score / maxPoints) * 100) : 0,
+          pointsEarned: score,
+          pointsMax: maxPoints,
+          submittedAt: Date.now(),
+        };
+        batch.set(window.QS.db.collection("results").doc(), resultData);
+      }
+      await batch.commit();
+      alert(`✅ Listo: ${participants.length} resultado(s) de "${s.quizTitle}" enviados al panel de Resultados.`);
+    } catch (err) {
+      console.error("Error reconstruyendo resultados:", err);
+      alert("No se pudo: " + err.message);
+    }
+    setBusyId(null);
+  };
+
+  if (loadingH) {
+    return (
+      <div style={{ maxWidth: 900, margin: "0 auto", padding: 32, textAlign: "center", color: "var(--ink-500)" }}>
+        Cargando historial de sesiones...
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ maxWidth: 900, margin: "0 auto", padding: 32 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <h1 style={{ fontSize: 28, marginBottom: 4 }}>🔴 Sesiones en vivo</h1>
+          <p style={{ color: "var(--ink-500)" }}>
+            Historial de salas jugadas. Los puntajes quedan guardados aunque la sala no se haya finalizado.
+          </p>
+        </div>
+        <button onClick={onBack} className="qs-btn qs-btn--ghost">← Volver a Resultados</button>
+      </div>
+
+      {sessions.length === 0 ? (
+        <div className="qs-card" style={{ padding: 40, textAlign: "center", color: "var(--ink-500)", marginTop: 16 }}>
+          <div style={{ fontSize: 40, marginBottom: 8 }}>📭</div>
+          <p style={{ fontWeight: 600 }}>Aún no has jugado sesiones en vivo</p>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 16 }}>
+          {sessions.map(s => {
+            const ps = Object.values(s.participants || {})
+              .map(p => ({ ...p, score: p.score || 0 }))
+              .sort((a, b) => b.score - a.score);
+            const st = STATUS_LABEL[s.status] || { txt: s.status, bg: "var(--ink-400)" };
+            const open = openId === s.id;
+            return (
+              <div key={s.id} className="qs-card" style={{ padding: 16 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 800, fontFamily: "var(--font-display)", fontSize: 16 }}>
+                      {s.quizTitle || "Quiz"}
+                      <span style={{
+                        marginLeft: 10, fontSize: 11, fontWeight: 700, color: "#fff",
+                        background: st.bg, borderRadius: 999, padding: "3px 10px",
+                        verticalAlign: "middle",
+                      }}>{st.txt}</span>
+                    </div>
+                    <div style={{ fontSize: 13, color: "var(--ink-500)", marginTop: 4 }}>
+                      Sala {s.code} · {new Date(s.createdAt || 0).toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" })} · {ps.length} participante{ps.length === 1 ? "" : "s"}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <button onClick={() => setOpenId(open ? null : s.id)} className="qs-btn qs-btn--ghost qs-btn--sm">
+                      {open ? "Ocultar ▲" : "Ver puntajes ▼"}
+                    </button>
+                    {ps.length > 0 && (
+                      <button onClick={() => rebuildResults(s)} disabled={busyId === s.id}
+                        className="qs-btn qs-btn--primary qs-btn--sm">
+                        {busyId === s.id ? "Enviando..." : "💾 Enviar a Resultados"}
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {open && (
+                  <div className="qs-fade-in" style={{ marginTop: 14, borderTop: "1px solid var(--ink-200)", paddingTop: 12 }}>
+                    {ps.length === 0 ? (
+                      <div style={{ color: "var(--ink-400)", fontSize: 13 }}>Nadie alcanzó a entrar a esta sala.</div>
+                    ) : ps.map((p, i) => (
+                      <div key={p.id || i} style={{
+                        display: "flex", justifyContent: "space-between", alignItems: "center",
+                        padding: "7px 10px", borderRadius: 10,
+                        background: i % 2 === 0 ? "var(--ink-50)" : "transparent",
+                      }}>
+                        <div style={{ fontSize: 14, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          <span style={{ fontWeight: 800, color: "var(--violet-700)", marginRight: 8 }}>{i + 1}.</span>
+                          {p.avatar ? p.avatar + " " : ""}{p.name || "Sin nombre"}
+                          {p.course ? <span style={{ color: "var(--ink-400)", fontSize: 12 }}> · {p.course}</span> : null}
+                        </div>
+                        <div style={{ fontWeight: 800, color: "var(--ink-700)", flexShrink: 0 }}>{p.score} pts</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 window.QS.LiveSessionHost = LiveSessionHost;
 window.QS.StudentJoinLive = StudentJoinLive;
+window.QS.LiveHistoryPanel = LiveHistoryPanel;
