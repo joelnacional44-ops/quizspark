@@ -384,7 +384,9 @@ function HostQuestion({ session, quiz, currentQ, answersThisQ, totalParticipants
       const now = isPaused ? session.pausedAt : Date.now();
       const elapsed = (now - startedAt) / 1000;
       const left = Math.max(0, totalSeconds - elapsed);
-      setSecondsLeft(left);
+      // Solo actualizar estado cuando cambia el segundo visible: evita
+      // re-renderizar toda la vista 5 veces por segundo.
+      setSecondsLeft(prev => (Math.ceil(left) === Math.ceil(prev) ? prev : left));
       if (left <= 0 && !isPaused) {
         onReveal();
       }
@@ -441,7 +443,7 @@ function HostQuestion({ session, quiz, currentQ, answersThisQ, totalParticipants
           <div style={{
             height: "100%", width: timeProgress + "%",
             background: secondsLeft < 5 ? "var(--red-500)" : "linear-gradient(90deg, var(--emerald-400), var(--amber-400))",
-            transition: "width 0.2s linear",
+            transition: "width 1s linear",
           }} />
         </div>
 
@@ -2001,7 +2003,10 @@ function StudentLive({ sessionId, participantId, quizInitial, onExit }) {
     const isPaused = !!session.pausedAt;
     const tick = () => {
       const now = isPaused ? session.pausedAt : Date.now();
-      setSecondsLeft(Math.max(0, totalSec - (now - startedAt) / 1000));
+      const left = Math.max(0, totalSec - (now - startedAt) / 1000);
+      // Solo re-renderizar cuando cambia el segundo visible (ahorro de
+      // batería y CPU en los celulares de los estudiantes).
+      setSecondsLeft(prev => (Math.ceil(left) === Math.ceil(prev) ? prev : left));
     };
     tick();
     if (isPaused) return;
