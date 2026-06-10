@@ -1209,6 +1209,9 @@ function LiveSessionHost({ quizId, onExit }) {
   const [quiz, setQuiz] = useStateL(null);
   const [answersByQuestion, setAnswersByQuestion] = useStateL({});
   const [showParticipants, setShowParticipants] = useStateL(false);
+    // El id de sesión como ESTADO (no solo ref): garantiza que la suscripción
+  // a Firestore se active apenas exista la sesión.
+  const [sessionId, setSessionId] = useStateL(null);
   const sessionIdRef = useRefL(null);
 
   // Crear sesión al montar
@@ -1237,6 +1240,7 @@ function LiveSessionHost({ quizId, onExit }) {
         const docRef = await window.QS.db.collection("liveSessions").add(sessionData);
         sessionIdRef.current = docRef.id;
         if (cancelled) return;
+        setSessionId(docRef.id);
         setSession({ id: docRef.id, ...sessionData });
         setLoading(false);
       } catch (err) {
@@ -1251,15 +1255,15 @@ function LiveSessionHost({ quizId, onExit }) {
 
   // Suscripción a cambios en la sesión (participantes que entran, etc.)
   useEffectL(() => {
-    if (!sessionIdRef.current) return;
-    const unsub = window.QS.db.collection("liveSessions").doc(sessionIdRef.current)
+    if (!sessionId) return;
+    const unsub = window.QS.db.collection("liveSessions").doc(sessionId)
       .onSnapshot(doc => {
         if (doc.exists) {
           setSession(s => ({ ...s, id: doc.id, ...doc.data() }));
         }
       }, err => console.error("Snapshot error:", err));
     return () => unsub();
-  }, [sessionIdRef.current]);
+  }, [sessionId]);
 
   // Suscripción a respuestas de la pregunta actual
   useEffectL(() => {
@@ -1273,7 +1277,7 @@ function LiveSessionHost({ quizId, onExit }) {
         setAnswersByQuestion(prev => ({ ...prev, [qIdx]: ans }));
       });
     return () => unsub();
-  }, [session?.currentQuestionIdx]);
+  }, [sessionId, session?.currentQuestionIdx]);
 
   // ---- Acciones ----
   const startQuiz = async () => {
