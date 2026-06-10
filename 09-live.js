@@ -1679,6 +1679,23 @@ function StudentJoinLive({ initialCode, onCancel }) {
   const tryReconnect = async (roomCode) => {
     const saved = loadLiveSession(roomCode);
     if (!saved || !saved.sessionId || !saved.participantId) return false;
+    // Sesiones guardadas de hace más de 3 horas: descartarlas (son de otra clase)
+    if (saved.savedAt && Date.now() - saved.savedAt > 3 * 60 * 60 * 1000) {
+      clearLiveSession(roomCode);
+      return false;
+    }
+    // Reconexión "mejor esfuerzo": si Firestore no responde en 5 segundos,
+    // seguimos con el flujo normal de unirse en vez de dejar al estudiante
+    // pegado en "Verificando código de sala...".
+    let gaveUp = false;
+    const timeout = new Promise(res => setTimeout(() => { gaveUp = true; res(null); }, 5000));
+    try {
+      const doc = await Promise.race([
+        window.QS.db.collection("liveSessions").doc(saved.sessionId).get(),
+        timeout,
+      ]);
+      if (gaveUp || !doc) return false;
+      if (!doc.exists) { clearLiveSession(roomCode); return false; }
     try {
       const doc = await window.QS.db.collection("liveSessions").doc(saved.sessionId).get();
       if (!doc.exists) { clearLiveSession(roomCode); return false; }
@@ -1693,7 +1710,12 @@ function StudentJoinLive({ initialCode, onCancel }) {
         return false;
       }
       // Cargar el quiz para entregárselo a StudentLive
-      const quizDoc = await window.QS.db.collection("quizzes").doc(sessionData.quizId).get();
+      // Cargar el quiz para entregárselo a StudentLive (también con timeout)
+      const quizDoc = await Promise.race([
+        window.QS.db.collection("quizzes").doc(sessionData.quizId).get(),
+        timeout,
+      ]);
+      if (gaveUp || !quizDoc) return false;
       if (!quizDoc.exists) { clearLiveSession(roomCode); return false; }
       setSession(sessionData);
       setParticipantId(saved.participantId);
@@ -1799,6 +1821,7 @@ function StudentJoinLive({ initialCode, onCancel }) {
         participantId: pid,
         name: name.trim(),
         course: course.trim(),
+        savedAt: Date.now(),
       });
 
       // Cargar quiz con manejo tolerante
