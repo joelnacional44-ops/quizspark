@@ -15,7 +15,7 @@
 
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@600;700;800&display=swap" rel="stylesheet" />
 
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css?v=2" />
 
   <!--
     Versiones EXACTAS: unpkg resuelve "react@18" con una redirección 302
@@ -59,30 +59,71 @@
       </div>
     </div>
   </div>
+  <script>
+    // Red de seguridad de ARRANQUE: si la app no logra iniciar (error de
+    // sintaxis, CDN caído, etc.), reemplaza el spinner por un mensaje claro
+    // en vez de dejar la pantalla en blanco. Solo actúa si la app aún no
+    // ha montado (el splash sigue presente).
+    (function () {
+      var shown = false;
+      function appNotStarted() {
+        var root = document.getElementById("root");
+        return root && root.querySelector(".qs-splash");
+      }
+      function showFatal(detail) {
+        if (shown || !appNotStarted()) return;
+        shown = true;
+        document.getElementById("root").innerHTML =
+          '<div class="qs-splash"><div class="qs-splash-inner" style="max-width:420px;padding:20px;">' +
+          '<div style="font-size:40px;margin-bottom:10px;">⚠️</div>' +
+          '<p style="font-weight:700;font-size:17px;color:#0f172a;margin:0 0 6px;">Algo salió mal al cargar QuizSpark</p>' +
+          '<p style="font-size:13px;margin:0 0 16px;">Suele resolverse recargando la página.</p>' +
+          '<button onclick="location.reload()" style="background:#7c3aed;color:#fff;border:0;border-radius:12px;padding:12px 22px;font-size:15px;font-weight:700;cursor:pointer;">↻ Recargar</button>' +
+          '<details style="margin-top:18px;text-align:left;font-size:11px;color:#94a3b8;"><summary style="cursor:pointer;">Detalle técnico (envíalo si pides ayuda)</summary><pre style="white-space:pre-wrap;word-break:break-word;">' +
+          String(detail).replace(/</g, "&lt;") + "</pre></details>" +
+          "</div></div>";
+      }
+      window.addEventListener("error", function (e) {
+        showFatal(e.message + (e.filename ? "\n" + e.filename + ":" + e.lineno : ""));
+      });
+      window.addEventListener("unhandledrejection", function (e) {
+        showFatal("Promise: " + (e.reason && e.reason.message ? e.reason.message : e.reason));
+      });
+      // Si en 25 segundos la app no ha montado (sin error visible), avisar.
+      setTimeout(function () {
+        showFatal("La carga está tardando demasiado. Puede ser la conexión a internet o un bloqueo de red del colegio.");
+      }, 25000);
+    })();
+  </script>
   <noscript>
     <p style="text-align:center;padding:2rem;font-family:sans-serif;">
       Esta aplicación requiere JavaScript habilitado.
     </p>
   </noscript>
 
+  <!--
+    VERSIONADO: el "?v=2" obliga a los navegadores a descargar la versión
+    nueva de cada archivo. Al subir cualquier cambio de .js o .css, sube
+    el número en TODOS los src/href de archivos locales (v=3, v=4, ...).
+  -->
   <!-- Configuración + auth -->
-  <script defer src="00-firebase.js"></script>
-  <script type="text/babel" data-presets="react" src="00b-auth.js"></script>
+  <script defer src="00-firebase.js?v=2"></script>
+  <script type="text/babel" data-presets="react" src="00b-auth.js?v=2"></script>
 
   <!-- Núcleo -->
-  <script type="text/babel" data-presets="react" src="01-core.js"></script>
-  <script type="text/babel" data-presets="react" src="02-tweaks.js"></script>
+  <script type="text/babel" data-presets="react" src="01-core.js?v=2"></script>
+  <script type="text/babel" data-presets="react" src="02-tweaks.js?v=2"></script>
 
   <!-- Creator -->
-  <script type="text/babel" data-presets="react" src="03-creator.js"></script>
+  <script type="text/babel" data-presets="react" src="03-creator.js?v=2"></script>
 
   <!-- Evaluación asincrónica online -->
-  <script type="text/babel" data-presets="react" src="08-online.js"></script>
+  <script type="text/babel" data-presets="react" src="08-online.js?v=2"></script>
 
   <!-- Sala en vivo -->
-  <script type="text/babel" data-presets="react" src="09-live.js"></script>
+  <script type="text/babel" data-presets="react" src="09-live.js?v=2"></script>
 
   <!-- App principal -->
-  <script type="text/babel" data-presets="react" src="07-app.js"></script>
+  <script type="text/babel" data-presets="react" src="07-app.js?v=2"></script>
 </body>
 </html>

@@ -11,6 +11,56 @@ function getURLParam(name) {
   } catch (e) { return null; }
 }
 
+// Malla de seguridad de EJECUCIÓN: si una vista falla mientras se usa,
+// muestra un mensaje claro con salida, en vez de pantalla en blanco.
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+  componentDidCatch(error, info) {
+    console.error("ErrorBoundary capturó:", error, info);
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{
+          minHeight: "100vh", display: "grid", placeItems: "center",
+          background: "var(--ink-50)", padding: 20,
+        }}>
+          <div className="qs-card" style={{ padding: 32, maxWidth: 460, width: "100%", textAlign: "center" }}>
+            <div style={{ fontSize: 40, marginBottom: 10 }}>⚠️</div>
+            <h2 style={{ fontSize: 20, marginBottom: 8 }}>Esta sección tuvo un problema</h2>
+            <p style={{ fontSize: 14, color: "var(--ink-500)", marginBottom: 20 }}>
+              El resto de la aplicación sigue funcionando. Puedes reintentar o volver al inicio.
+            </p>
+            <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
+              <button className="qs-btn qs-btn--primary"
+                onClick={() => this.setState({ error: null })}>
+                ↻ Reintentar
+              </button>
+              <button className="qs-btn qs-btn--ghost"
+                onClick={() => { window.location.href = window.location.origin + window.location.pathname; }}>
+                🏠 Ir al inicio
+              </button>
+            </div>
+            <details style={{ marginTop: 18, textAlign: "left", fontSize: 11, color: "var(--ink-400)" }}>
+              <summary style={{ cursor: "pointer" }}>Detalle técnico (envíalo si pides ayuda)</summary>
+              <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                {String(this.state.error && (this.state.error.stack || this.state.error.message || this.state.error))}
+              </pre>
+            </details>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 function App() {
   // Detección de modos especiales por URL
   const [examCode] = useStateA(getURLParam("exam"));   // evaluación asincrónica
@@ -235,4 +285,6 @@ function LibraryView({ onBack }) {
   );
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+ReactDOM.createRoot(document.getElementById("root")).render(
+  <ErrorBoundary><App/></ErrorBoundary>
+);
