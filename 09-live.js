@@ -2781,6 +2781,9 @@ function LiveHistoryPanel({ onBack }) {
   const [loadingH, setLoadingH] = useStateL(true);
   const [openId, setOpenId] = useStateL(null);
   const [busyId, setBusyId] = useStateL(null);
+  // Detalle de respuestas por pregunta: { sessionId, quiz, answers }
+  const [detail, setDetail] = useStateL(null);
+  const [loadingDetail, setLoadingDetail] = useStateL(null);
 
   useEffectL(() => {
     const load = async () => {
@@ -2808,6 +2811,75 @@ function LiveHistoryPanel({ onBack }) {
     cancelled: { txt: "Cancelada",         bg: "var(--red-500)" },
   };
 
+  // Texto legible de una respuesta según el tipo de pregunta
+  const answerToText = (q, answer) => {
+    if (answer === null || answer === undefined || answer === "") return "(sin respuesta)";
+    if (Array.isArray(answer)) {
+      return answer.map(id => {
+        const o = (q.options || []).find(x => x.id === id);
+        return o ? o.text : id;
+      }).join(" | ");
+    }
+    if (q.type === "scale") {
+      const labels = q.scaleLabels || SCALE_LABELS;
+      const idx = Number(answer);
+      return !isNaN(idx) && labels[idx] != null ? labels[idx] : String(answer);
+    }
+    if (q.options && q.options.length) {
+      const o = q.options.find(x => x.id === answer);
+      if (o) return o.text;
+    }
+    return String(answer);
+  };
+
+  // Cargar (o cerrar) el detalle de respuestas por pregunta de una sesión
+  const toggleDetail = async (s) => {
+    if (detail && detail.sessionId === s.id) { setDetail(null); return; }
+    setLoadingDetail(s.id);
+    try {
+      const quizDoc = await window.QS.db.collection("quizzes").doc(s.quizId).get();
+      if (!quizDoc.exists) throw new Error("El quiz de esta sesión ya no existe.");
+      const quiz = { id: quizDoc.id, ...quizDoc.data() };
+      const snap = await window.QS.db.collection("liveSessions")
+        .doc(s.id).collection("answers").get();
+      const answers = snap.docs.map(d => d.data());
+      setDetail({ sessionId: s.id, quiz, answers });
+      setOpenId(null);
+    } catch (err) {
+      alert("No se pudieron cargar las respuestas: " + err.message);
+    }
+    setLoadingDetail(null);
+  };
+
+  // Descargar CSV con una fila por estudiante y una columna por pregunta
+  const downloadCsv = (s) => {
+    if (!detail || detail.sessionId !== s.id) return;
+    const { quiz, answers } = detail;
+    const qs = quiz.questions.map((q, i) => ({ q, realIdx: i })).filter(x => x.q.type !== "slide");
+    const header = ["Nombre", "Curso"];
+    qs.forEach((x, i) => header.push(`P${i + 1}: ${String(x.q.text || "").substring(0, 60)}`));
+    const escapeCsv = (val) => {
+      const str = String(val == null ? "" : val);
+      return (str.includes(",") || str.includes('"') || str.includes("\n"))
+        ? '"' + str.replace(/"/g, '""') + '"' : str;
+    };
+    const rows = Object.values(s.participants || {}).map(p => {
+      const row = [p.name || "Sin nombre", p.course || ""];
+      qs.forEach(x => {
+        const ans = answers.find(a => a.participantId === p.id && a.questionIdx === x.realIdx);
+        row.push(answerToText(x.q, ans ? ans.answer : null));
+      });
+      return row;
+    });
+    const csv = [header, ...rows].map(r => r.map(escapeCsv).join(",")).join("\n");
+    const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `respuestas-${(s.quizTitle || "quiz").replace(/[^\w\sáéíóúñÁÉÍÓÚÑ-]/g, "")}-sala${s.code}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
   // Reconstruye los resultados de una sesión y los envía al panel de
   // Resultados (misma lógica que al finalizar una sala, pero a demanda).
   const rebuildResults = async (s) => {
@@ -2820,7 +2892,7 @@ function LiveHistoryPanel({ onBack }) {
       const quizDoc = await window.QS.db.collection("quizzes").doc(s.quizId).get();
       if (!quizDoc.exists) throw new Error("El quiz de esta sesión ya no existe, no es posible calificar.");
       const quiz = { id: quizDoc.id, ...quizDoc.data() };
-      if (quiz.mode === "survey") throw new Error("Las encuestas no generan calificaciones.");
+      if (quiz.mode === "survey") throw new Error("Las encuestas no generan calificaciones. Usa el botón \"📋 Respuestas\" para verlas y descargarlas en CSV.");
       const participants = Object.values(s.participants || {});
       if (participants.length === 0) throw new Error("Esta sesión no tuvo participantes.");
 
@@ -2952,6 +3024,10 @@ function LiveHistoryPanel({ onBack }) {
                     <button onClick={() => setOpenId(open ? null : s.id)} className="qs-btn qs-btn--ghost qs-btn--sm">
                       {open ? "Ocultar ▲" : "Ver puntajes ▼"}
                     </button>
+                    <button onClick={() => toggleDetail(s)} disabled={loadingDetail === s.id}
+                      className="qs-btn qs-btn--ghost qs-btn--sm">
+                      {loadingDetail === s.id ? "Cargando..." : (detail && detail.sessionId === s.id ? "📋 Ocultar respuestas" : "📋 Respuestas")}
+                    </button>
                     {ps.length > 0 && (
                       <button onClick={() => rebuildResults(s)} disabled={busyId === s.id}
                         className="qs-btn qs-btn--primary qs-btn--sm">
@@ -2960,6 +3036,72 @@ function LiveHistoryPanel({ onBack }) {
                     )}
                   </div>
                 </div>
+
+                {detail && detail.sessionId === s.id && (
+                  <div className="qs-fade-in" style={{ marginTop: 14, borderTop: "1px solid var(--ink-200)", paddingTop: 12 }}>
+                    <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+                      <button onClick={() => downloadCsv(s)} className="qs-btn qs-btn--success qs-btn--sm">
+                        ⬇️ Descargar CSV (Excel)
+                      </button>
+                    </div>
+                    {detail.quiz.questions.filter(q => q.type !== "slide").map((q, qi) => {
+                      const realIdx = detail.quiz.questions.findIndex(qq => qq.id === q.id);
+                      const qAnswers = detail.answers.filter(a => a.questionIdx === realIdx);
+                      const hasOptions = (q.options && q.options.length) || q.type === "scale";
+                      let dist = null;
+                      if (hasOptions) {
+                        const labels = q.type === "scale" ? (q.scaleLabels || SCALE_LABELS) : q.options.map(o => o.text);
+                        const counts = labels.map(() => 0);
+                        qAnswers.forEach(a => {
+                          if (Array.isArray(a.answer)) {
+                            a.answer.forEach(id => {
+                              const oi = q.options.findIndex(o => o.id === id);
+                              if (oi >= 0) counts[oi]++;
+                            });
+                          } else if (q.type === "scale") {
+                            const idx = Number(a.answer);
+                            if (!isNaN(idx) && idx >= 0 && idx < counts.length) counts[idx]++;
+                          } else {
+                            const oi = q.options.findIndex(o => o.id === a.answer);
+                            if (oi >= 0) counts[oi]++;
+                          }
+                        });
+                        const maxC = Math.max(1, ...counts);
+                        dist = labels.map((lbl, i) => (
+                          <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                            <div style={{ flex: "0 0 45%", fontSize: 12, color: "var(--ink-700)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{lbl}</div>
+                            <div style={{ flex: 1, height: 14, background: "var(--ink-100)", borderRadius: 7, overflow: "hidden" }}>
+                              <div style={{ height: "100%", width: (counts[i] / maxC) * 100 + "%", background: tileColor(i), borderRadius: 7, transition: "width .3s" }}/>
+                            </div>
+                            <div style={{ flex: "0 0 28px", fontSize: 12, fontWeight: 800, textAlign: "right", color: "var(--ink-700)" }}>{counts[i]}</div>
+                          </div>
+                        ));
+                      }
+                      return (
+                        <div key={q.id} style={{ marginBottom: 16 }}>
+                          <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, color: "var(--ink-900)" }}>
+                            <span style={{ color: "var(--violet-700)" }}>P{qi + 1}.</span> {q.text}
+                          </div>
+                          {dist ? dist : (
+                            <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 180, overflowY: "auto" }}>
+                              {qAnswers.length === 0 ? (
+                                <div style={{ fontSize: 12, color: "var(--ink-400)" }}>(sin respuestas)</div>
+                              ) : qAnswers.map((a, ai) => {
+                                const p = (s.participants || {})[a.participantId] || {};
+                                return (
+                                  <div key={ai} style={{ fontSize: 13, padding: "6px 10px", background: "var(--violet-50)", borderRadius: 8 }}>
+                                    <span style={{ fontWeight: 800, color: "var(--violet-700)" }}>{p.name || "Anónimo"}: </span>
+                                    {answerToText(q, a.answer)}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
 
                 {open && (
                   <div className="qs-fade-in" style={{ marginTop: 14, borderTop: "1px solid var(--ink-200)", paddingTop: 12 }}>
