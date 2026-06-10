@@ -386,6 +386,110 @@ function HostLobby({ session, quiz, onStart, onCancel, onKick }) {
 }
 
 // ============================================================
+// LIVE ANSWERS PANEL — distribución de respuestas en tiempo real.
+// Las respuestas YA llegan en vivo por la suscripción existente;
+// este componente solo las pinta (cero costo extra de Firestore).
+// ============================================================
+function LiveAnswersPanel({ currentQ, answersThisQ, session }) {
+  const entries = Object.values(answersThisQ || {});
+  const type = currentQ.type;
+  const isBars  = type === "multi" || type === "truefalse" || type === "checks" || type === "poll";
+  const isScale = type === "scale";
+  const isText  = type === "text" || type === "wordcloud";
+  if (!isBars && !isScale && !isText) return null;
+
+  // ----- Barras verticales -----
+  if (isBars || isScale) {
+    let labels, colors, counts;
+    if (isScale) {
+      const lbls = currentQ.scaleLabels || SCALE_LABELS;
+      colors = lbls.map((_, i, arr) => {
+        const ratio = arr.length > 1 ? i / (arr.length - 1) : 0.5;
+        return `hsl(${Math.round(ratio * 130)}, 65%, 48%)`;
+      });
+      counts = lbls.map(() => 0);
+      entries.forEach(e => {
+        const idx = Number(e.answer);
+        if (!isNaN(idx) && idx >= 0 && idx < counts.length) counts[idx]++;
+      });
+      labels = lbls.map((_, i) => String(i + 1)); // solo el número; la leyenda completa está arriba
+    } else {
+      const opts = currentQ.options || [];
+      labels = opts.map((o, i) => o.text || String.fromCharCode(65 + i));
+      colors = opts.map((_, i) => tileColor(i));
+      const byId = {};
+      entries.forEach(e => {
+        const a = e.answer;
+        if (Array.isArray(a)) a.forEach(id => { byId[id] = (byId[id] || 0) + 1; });
+        else if (typeof a === "string") byId[a] = (byId[a] || 0) + 1;
+      });
+      counts = opts.map(o => byId[o.id] || 0);
+    }
+    const max = Math.max(1, ...counts);
+    return (
+      <div style={{ marginTop: 14, padding: "14px 8px 10px", background: "var(--ink-50)", borderRadius: 12 }}>
+        <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-around", height: 140, gap: 8 }}>
+          {counts.map((n, i) => (
+            <div key={i} style={{
+              flex: 1, height: "100%", display: "flex", flexDirection: "column",
+              alignItems: "center", justifyContent: "flex-end", minWidth: 0,
+            }}>
+              <div style={{ fontWeight: 800, fontSize: 15, color: "var(--ink-700)", marginBottom: 4 }}>{n}</div>
+              <div style={{
+                width: "68%", maxWidth: 54,
+                height: Math.max(3, (n / max) * 100) + "%",
+                background: colors[i], borderRadius: "8px 8px 0 0",
+                transition: "height .45s ease",
+              }}/>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-around", gap: 8, marginTop: 6 }}>
+          {labels.map((lbl, i) => (
+            <div key={i} style={{
+              flex: 1, textAlign: "center", fontSize: 11, fontWeight: 700, color: "var(--ink-500)",
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0,
+            }}>
+              {isScale ? lbl : `${tileShape(i)} ${lbl}`}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // ----- Respuestas abiertas: aparecen a medida que llegan -----
+  const feed = entries
+    .slice()
+    .sort((a, b) => (b.answeredAt || 0) - (a.answeredAt || 0))
+    .map(e => ({
+      pid: e.participantId,
+      name: (session.participants && session.participants[e.participantId] && session.participants[e.participantId].name) || "Anónimo",
+      text: String(e.answer || ""),
+    }));
+  return (
+    <div style={{ marginTop: 14 }}>
+      {feed.length === 0 ? (
+        <div style={{ padding: 14, textAlign: "center", color: "var(--ink-400)", fontSize: 13, background: "var(--ink-50)", borderRadius: 12 }}>
+          ✍️ Aún no llegan respuestas...
+        </div>
+      ) : (
+        <div style={{ maxHeight: 190, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
+          {feed.map(a => (
+            <div key={a.pid} className="qs-fade-in" style={{
+              padding: "8px 12px", background: "var(--violet-50)", borderRadius: 10,
+              fontSize: 13, color: "var(--ink-900)", border: "1px solid var(--violet-100)",
+            }}>
+              <span style={{ fontWeight: 800, color: "var(--violet-700)" }}>{a.name}: </span>{a.text}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
 // HOST QUESTION — el profe mira la pregunta en curso
 // ============================================================
 function HostQuestion({ session, quiz, currentQ, answersThisQ, totalParticipants, onSkip, onReveal, onAddTime, onFinish, onTogglePause, onRelaunch, onShowParticipants }) {
@@ -394,6 +498,12 @@ function HostQuestion({ session, quiz, currentQ, answersThisQ, totalParticipants
   const startedAt = session.questionStartedAt || Date.now();
   const isPaused = !!session.pausedAt;
   const [secondsLeft, setSecondsLeft] = useStateL(totalSeconds);
+  const [showLive, setShowLive] = useStateL(false);
+
+  // El gráfico en vivo se oculta al cambiar de pregunta, para que el
+  // docente decida en cada una si lo proyecta (evita sesgar las votaciones
+  // sin querer).
+  useEffectL(() => { setShowLive(false); }, [session.currentQuestionIdx]);
 
   useEffectL(() => {
     const tick = () => {
@@ -571,6 +681,31 @@ function HostQuestion({ session, quiz, currentQ, answersThisQ, totalParticipants
                 transition: "width 0.3s ease",
               }} />
             </div>
+
+            {/* Distribución en tiempo real (opcional, lo activa el docente) */}
+            {(currentQ.type !== "order" && currentQ.type !== "slide") && (
+              <div style={{ marginTop: 12 }}>
+                <button onClick={() => setShowLive(v => !v)}
+                  className="qs-btn qs-btn--sm"
+                  style={{
+                    width: "100%", justifyContent: "space-between",
+                    background: showLive ? "var(--violet-600)" : "var(--violet-50)",
+                    color: showLive ? "#fff" : "var(--violet-700)",
+                    border: "1px solid " + (showLive ? "var(--violet-600)" : "var(--violet-200)"),
+                  }}>
+                  <span>📊 Respuestas en vivo</span>
+                  <span>{showLive ? "Ocultar ▲" : "Ver ▼"}</span>
+                </button>
+                {showLive && (
+                  <>
+                    <div style={{ fontSize: 11, color: "var(--amber-500)", fontWeight: 700, marginTop: 6, textAlign: "center" }}>
+                      ⚠️ Visible en la proyección: los estudiantes verán la tendencia
+                    </div>
+                    <LiveAnswersPanel currentQ={currentQ} answersThisQ={answersThisQ} session={session} />
+                  </>
+                )}
+              </div>
+            )}
 
             {/* Quién respondió (en orden) y quién falta */}
             <div style={{ marginTop: 14, maxHeight: 180, overflowY: "auto" }}>
