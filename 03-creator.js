@@ -205,6 +205,24 @@ function Dashboard({ onOpenEditor, onLaunch, onResults }) {
           };
         });
         list.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+
+        // Conteo real de sesiones jugadas por quiz: se cuenta toda sala
+        // que efectivamente arrancó (pasó del lobby) o se finalizó.
+        try {
+          const sesSnap = await window.QS.db.collection("liveSessions")
+            .where("ownerId", "==", uid).get();
+          const playedByQuiz = {};
+          sesSnap.docs.forEach(d => {
+            const s = d.data();
+            const started = (s.currentQuestionIdx != null && s.currentQuestionIdx >= 0) || s.status === "finished";
+            if (started && s.quizId) playedByQuiz[s.quizId] = (playedByQuiz[s.quizId] || 0) + 1;
+          });
+          list.forEach(q => { q.plays = playedByQuiz[q.id] || 0; });
+        } catch (err) {
+          console.error("Error contando sesiones:", err);
+          // Si falla el conteo, se muestran los quizzes igual (plays queda en su valor previo)
+        }
+
         if (!cancelled) { setQuizzes(list); setLoadingQuizzes(false); }
       } catch (err) {
         console.error("Error cargando quizzes:", err);
@@ -473,6 +491,10 @@ function Editor({ quizId, onBack, onLaunch }) {
   const [saveStatus, setSaveStatus] = useStateC("");
   const [showPublish, setShowPublish] = useStateC(false);
   const [loadingQuiz, setLoadingQuiz] = useStateC(false);
+  // Recuerda el id real del documento creado, aunque el estado aún no se
+  // haya actualizado: evita que un doble clic o un guardado rápido cree
+  // el mismo quiz dos veces.
+  const savedIdRef = useRefC(null);
   const active = quiz.questions[activeIdx];
 
   // Cargar quiz desde Firestore si recibimos un id existente
@@ -520,14 +542,20 @@ function Editor({ quizId, onBack, onLaunch }) {
     try {
       const uid = window.QS.currentUser?.uid;
       if (!uid) throw new Error("No hay sesión activa");
+      // Id efectivo: el del estado si ya es real, o el recordado en el ref
+      // si este quiz nuevo ya fue creado en un guardado anterior.
+      const isNewId = String(quiz.id).startsWith("new-") || !quiz.id;
+      const effectiveId = isNewId ? savedIdRef.current : quiz.id;
       const data = { ...quiz, ownerId: uid, updatedAt: Date.now() };
-      let savedId = quiz.id;
-      if (String(quiz.id).startsWith("new-") || !quiz.id) {
+      let savedId = effectiveId || quiz.id;
+      if (!effectiveId) {
         const docRef = await window.QS.db.collection("quizzes").add(data);
         savedId = docRef.id;
+        savedIdRef.current = docRef.id;
         setQuiz(q => ({ ...q, id: docRef.id }));
       } else {
-        await window.QS.db.collection("quizzes").doc(quiz.id).set(data, { merge: true });
+        await window.QS.db.collection("quizzes").doc(effectiveId).set({ ...data, id: effectiveId }, { merge: true });
+        savedId = effectiveId;
       }
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus(""), 2500);
@@ -663,14 +691,14 @@ function Editor({ quizId, onBack, onLaunch }) {
               <I.lock size={14}/> Calificación y Reglas
             </button>
           )}
-          <button onClick={handlePublishClick} className="qs-btn qs-btn--ghost qs-btn--sm">
+          <button onClick={handlePublishClick} disabled={saving} className="qs-btn qs-btn--ghost qs-btn--sm">
             🌐 Publicar online
           </button>
           <button onClick={handleSave} disabled={saving} className="qs-btn qs-btn--primary qs-btn--sm">
             {saving ? "Guardando..." : "💾 Guardar"}
           </button>
-          <button className="qs-btn qs-btn--success" onClick={handleLaunchClick}>
-            🎮 Sala en vivo
+          <button className="qs-btn qs-btn--success" onClick={handleLaunchClick} disabled={saving}>
+            {saving ? "⏳ Guardando..." : "🎮 Sala en vivo"}
           </button>
         </div>
       </div>
